@@ -5,7 +5,7 @@ gets an AI assistant that turns customer messages into structured orders in a
 dashboard. Shops start on a 3-day free trial; when it ends the platform
 automatically disconnects the number until the shop upgrades.
 
-**Live:** https://orderbuds.vercel.app — landing page, shop app at `/app`,
+**Live:** https://flowers-one-puce.vercel.app — landing page, shop app at `/app`,
 operator panel at `/admin`. Postgres runs on Neon, provisioned through the
 Vercel marketplace.
 
@@ -18,6 +18,13 @@ Vercel marketplace.
 - Hourly-style cron that expires overdue trials and auto-disconnects those shops
 - Operator panel: all shops, live status, order counts, trial countdown
 - Stubbed plan upgrade that reactivates a suspended shop
+
+## Logging in
+
+- **Shop owner:** open `/app` and log in, or click "Start free trial" to create a shop.
+- **Operator (you):** open `/admin` and enter the operator secret (`ADMIN_SECRET`).
+  From there you can see every shop, its trial countdown and order count, and
+  **Disconnect**, **Suspend** or **Activate** any shop.
 
 ## Layout
 
