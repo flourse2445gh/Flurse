@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS products (
   description TEXT,
   -- Minor units (cents) so money never touches floating point
   price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
-  currency    TEXT NOT NULL DEFAULT 'USD',
+  currency    TEXT NOT NULL DEFAULT 'INR',
   active      BOOLEAN NOT NULL DEFAULT true,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, sku)
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS orders (
   status        TEXT NOT NULL DEFAULT 'pending'
                 CHECK (status IN ('pending', 'confirmed', 'fulfilled', 'cancelled')),
   total_cents   INTEGER NOT NULL DEFAULT 0 CHECK (total_cents >= 0),
-  currency      TEXT NOT NULL DEFAULT 'USD',
+  currency      TEXT NOT NULL DEFAULT 'INR',
   notes         TEXT,
   raw_message   TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),

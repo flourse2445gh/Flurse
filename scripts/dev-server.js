@@ -15,6 +15,9 @@ const ROUTES = {
   '/api/auth': 'api/auth.js',
   '/api/webhook': 'api/webhook.js',
   '/api/dashboard': 'api/dashboard.js',
+  '/api/conversations': 'api/conversations.js',
+  '/api/products': 'api/products.js',
+  '/api/whatsapp': 'api/whatsapp.js',
   '/api/admin': 'api/admin.js',
   '/api/payments': 'api/payments.js',
   '/api/health': 'api/health.js',
@@ -45,16 +48,20 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // Static files from public/
+  // Static files from public/. Mirrors Vercel's cleanUrls: /app serves
+  // public/app.html, and / still maps to public/index.html.
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
-  try {
-    const file = await readFile(join(root, 'public', rel));
-    res.setHeader('Content-Type', MIME[extname(rel)] || 'application/octet-stream');
-    res.end(file);
-  } catch {
-    res.statusCode = 404;
-    res.end('Not found');
+  const candidates = [rel, `${rel}.html`];
+  for (const candidate of candidates) {
+    try {
+      const file = await readFile(join(root, 'public', candidate));
+      res.setHeader('Content-Type', MIME[extname(candidate)] || MIME[extname(rel)] || 'application/octet-stream');
+      res.end(file);
+      return;
+    } catch { /* try the next candidate */ }
   }
+  res.statusCode = 404;
+  res.end('Not found');
 });
 
 const port = process.env.PORT || 3000;

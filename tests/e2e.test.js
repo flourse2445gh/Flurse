@@ -89,6 +89,9 @@ before(async () => {
     '/api/auth': '../api/auth.js',
     '/api/webhook': '../api/webhook.js',
     '/api/dashboard': '../api/dashboard.js',
+    '/api/conversations': '../api/conversations.js',
+    '/api/products': '../api/products.js',
+    '/api/whatsapp': '../api/whatsapp.js',
     '/api/admin': '../api/admin.js',
     '/api/payments': '../api/payments.js',
     '/api/health': '../api/health.js',
@@ -424,6 +427,150 @@ test('the admin view is secret-gated and reports cross-tenant stats', async () =
   assert.equal(body.tenants.total, 2);
   assert.equal(body.tenants.active, 1);
   assert.equal(body.tenants.trialing, 1);
+});
+
+test('a shop manages its catalog in rupees', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const cookie = login.cookie;
+
+  const created = await api('/api/products', {
+    method: 'POST',
+    body: { name: 'Red Rose Premium', price: 1499, description: '12 red roses' },
+    cookie,
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.product.price_cents, 149900, 'rupees convert to paise');
+  assert.equal(created.body.product.currency, 'INR');
+
+  const listed = await api('/api/products', { cookie });
+  assert.ok(listed.body.products.some((p) => p.name === 'Red Rose Premium'));
+
+  const bad = await api('/api/products', { method: 'POST', body: { name: 'X', price: -5 }, cookie });
+  assert.equal(bad.status, 400);
+
+  const removed = await api(`/api/products?id=${created.body.product.id}`, { method: 'DELETE', cookie });
+  assert.equal(removed.status, 200);
+  assert.equal(removed.body.deleted, 1);
+});
+
+test('the catalog is tenant-scoped', async () => {
+  const a = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const b = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@rival.cafe', password: 'supersecret456' },
+  });
+  await api('/api/products', { method: 'POST', body: { name: 'Only Mine', price: 100 }, cookie: a.cookie });
+  const other = await api('/api/products', { cookie: b.cookie });
+  assert.equal(other.body.products.length, 0, 'a shop must not see another shop catalog');
+});
+
+test('a shop connects and disconnects its WhatsApp number', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const cookie = login.cookie;
+
+  const before = await api('/api/whatsapp', { cookie });
+  assert.equal(before.body.connected, false, 'no access token yet, so not connected');
+  assert.equal(before.body.phoneNumberId, 'PHONE1', 'the onboarding number id is kept');
+
+  const saved = await api('/api/whatsapp', {
+    method: 'POST',
+    body: { phone_number_id: 'PHONE-CONNECT', access_token: 'token-xyz' },
+    cookie,
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.connected, true);
+  assert.ok(saved.body.verifyToken, 'a verify token is issued');
+
+  // A second shop cannot claim the same Meta number.
+  const rival = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@rival.cafe', password: 'supersecret456' },
+  });
+  const clash = await api('/api/whatsapp', {
+    method: 'POST',
+    body: { phone_number_id: 'PHONE-CONNECT', access_token: 'token-abc' },
+    cookie: rival.cookie,
+  });
+  assert.equal(clash.status, 409);
+
+  const off = await api('/api/whatsapp', { method: 'DELETE', cookie });
+  assert.equal(off.status, 200);
+  const after = await api('/api/whatsapp', { cookie });
+  assert.equal(after.body.connected, false);
+});
+
+test('conversations expose threads and record manual replies', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const cookie = login.cookie;
+
+  const { body } = await api('/api/conversations', { cookie });
+  const thread = body.conversations.find((c) => c.wa_id === '15550001111');
+  assert.ok(thread, 'the inbound customer should have a thread');
+
+  const detail = await api(`/api/conversations?id=${thread.id}`, { cookie });
+  assert.equal(detail.body.customer.display_name, 'Test Customer');
+  assert.ok(detail.body.messages.length >= 1);
+  assert.equal(detail.body.orders.length, 1);
+
+  const reply = await api('/api/conversations', {
+    method: 'POST',
+    body: { customer_id: thread.id, body: 'Aapka order ready hai!' },
+    cookie,
+  });
+  assert.equal(reply.status, 201);
+  assert.equal(reply.body.delivered, false, 'no live token in tests, so not delivered');
+
+  const after = await api(`/api/conversations?id=${thread.id}`, { cookie });
+  assert.equal(after.body.messages.at(-1).direction, 'outbound');
+
+  const foreign = await api('/api/conversations?id=00000000-0000-0000-0000-000000000000', { cookie });
+  assert.equal(foreign.status, 404);
+});
+
+test('the operator can suspend, activate and export shops', async () => {
+  const auth = { Authorization: 'Bearer test-cron-secret' };
+
+  const suspend = await fetch(`${BASE}/api/admin?action=suspend`, {
+    method: 'POST',
+    headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug: 'rival-cafe' }),
+  });
+  assert.equal(suspend.status, 200);
+  assert.equal((await suspend.json()).tenant.status, 'suspended');
+
+  const activate = await fetch(`${BASE}/api/admin?action=activate`, {
+    method: 'POST',
+    headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug: 'rival-cafe' }),
+  });
+  assert.equal(activate.status, 200);
+  assert.equal((await activate.json()).tenant.status, 'active');
+
+  const missing = await fetch(`${BASE}/api/admin?action=suspend`, {
+    method: 'POST',
+    headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug: 'ghost-shop' }),
+  });
+  assert.equal(missing.status, 404);
+
+  const csv = await fetch(`${BASE}/api/admin?view=export`, { headers: auth });
+  assert.equal(csv.status, 200);
+  assert.match(csv.headers.get('content-type'), /text\/csv/);
+  const text = await csv.text();
+  assert.match(text.split('\n')[0], /^shop,slug,owner,status/);
+  assert.match(text, /test-cafe/);
 });
 
 test('logout invalidates the session', async () => {

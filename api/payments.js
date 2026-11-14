@@ -3,8 +3,8 @@ import { requireSession } from '../lib/auth.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 const PLANS = {
-  starter: { name: 'Starter', priceCents: 2900, currency: 'USD' },
-  growth:  { name: 'Growth',  priceCents: 7900, currency: 'USD' },
+  starter: { name: 'Pro Monthly', priceCents: 59900, currency: 'INR' },
+  growth:  { name: 'Multi-Outlet', priceCents: 149900, currency: 'INR' },
 };
 
 // GET  /api/payments            -> available plans

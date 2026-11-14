@@ -3,103 +3,76 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BudsBox — Operator</title>
+<title>BudsBox — Operator panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/app.css">
 <style>
-  :root {
-    --bg: #0f1216; --panel: #171b21; --panel-2: #1e242c; --line: #2a323c;
-    --text: #e8edf3; --muted: #93a1b1; --accent: #25d366; --danger: #ef4d4d;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-  header { display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 24px; border-bottom: 1px solid var(--line); background: var(--panel); }
-  .brand { font-weight: 700; letter-spacing: -.02em; }
-  .brand span { color: var(--accent); }
-  main { max-width: 1100px; margin: 0 auto; padding: 24px; }
-  .card { background: var(--panel); border: 1px solid var(--line);
-    border-radius: 12px; padding: 20px; }
-  .hidden { display: none !important; }
-  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
-  .stat .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
-  input, button { font: inherit; border-radius: 8px; border: 1px solid var(--line);
-    background: var(--panel-2); color: var(--text); padding: 10px 12px; }
-  input { flex: 1; min-width: 0; }
-  button { background: var(--accent); color: #06301a; font-weight: 600; border: none;
-    cursor: pointer; padding: 10px 16px; }
-  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
-  .row { display: flex; gap: 10px; align-items: center; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
-  .pill { padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-  .pill.trialing  { background: #4a3a12; color: #ffd479; }
-  .pill.active    { background: #123a24; color: #7ff0a8; }
-  .pill.suspended { background: #4a1616; color: #ff9c9c; }
-  .pill.cancelled { background: #2a323c; color: #93a1b1; }
-  .muted { color: var(--muted); font-size: 13px; }
-  .error { color: var(--danger); font-size: 13px; min-height: 18px; }
-  .hint { background: #1e242c; border: 1px solid var(--line); border-radius: 10px;
-    padding: 14px 16px; margin-bottom: 16px; color: var(--muted); font-size: 14px; }
+  .shop-card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-card); }
+  .shop-card .av { width: 44px; height: 44px; border-radius: 16px; background: var(--brand-soft); color: var(--brand-dark); display: grid; place-items: center; font-size: 20px; flex-shrink: 0; }
+  .mini { background: var(--cream); border-radius: 12px; padding: 10px 12px; }
+  .mini .k { font-size: 9.5px; font-weight: 800; letter-spacing: .06em; color: var(--ink-30); text-transform: uppercase; }
+  .mini .v { font-size: 14px; font-weight: 800; margin-top: 2px; }
 </style>
 </head>
 <body>
-<header>
-  <div class="brand">Order<span>Buds</span> · Operator</div>
-  <div class="row">
-    <button id="refresh" class="ghost hidden">Refresh</button>
-    <button id="signout" class="ghost hidden">Sign out</button>
+
+<!-- GATE -->
+<section id="gate" class="wrap-sm" style="padding:56px 20px">
+  <div class="center">
+    <a class="logo" href="/" style="justify-content:center;text-decoration:none">
+      <span class="mark">🌸</span><span>BudsBox<small>Operator</small></span>
+    </a>
   </div>
-</header>
-
-<main>
-  <section id="gate" class="card" style="max-width:460px;margin:48px auto;">
-    <h2 style="margin:0 0 6px;font-size:18px;">Operator access</h2>
-    <p class="muted" style="margin:0 0 16px;">
-      Cross-tenant view. Paste the operator secret (the <code>ADMIN_SECRET</code> /
-      <code>CRON_SECRET</code> value). It is kept in this tab only.
-    </p>
-    <form id="gate-form" class="row">
-      <input id="secret" type="password" placeholder="Operator secret" required autocomplete="off">
-      <button type="submit">Open</button>
+  <div class="card anim-up" style="margin-top:24px">
+    <div style="width:52px;height:52px;border-radius:18px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:24px">🔐</div>
+    <h2 style="font-size:20px;margin:14px 0 4px">Operator login</h2>
+    <p class="muted" style="margin:0 0 18px">Cross-tenant view. Apna operator secret (<code>ADMIN_SECRET</code>) daalo — sirf is tab me rehta hai.</p>
+    <form id="gateForm" class="stack">
+      <div class="field"><label for="secret">Operator secret</label><input id="secret" type="password" required autocomplete="off" placeholder="••••••••"></div>
+      <div class="error" id="gateError"></div>
+      <button class="btn block" type="submit">Open panel →</button>
     </form>
-    <div class="error" id="gate-error" style="margin-top:10px;"></div>
-  </section>
+  </div>
+</section>
 
-  <section id="panel" class="hidden">
-    <div class="grid" style="margin-bottom:16px;">
-      <div class="card stat"><div class="label">Total shops</div><div class="value" id="t-total">—</div></div>
-      <div class="card stat"><div class="label">Trialing</div><div class="value" id="t-trial">—</div></div>
-      <div class="card stat"><div class="label">Active</div><div class="value" id="t-active">—</div></div>
-      <div class="card stat"><div class="label">Suspended</div><div class="value" id="t-susp">—</div></div>
-      <div class="card stat"><div class="label">Orders</div><div class="value" id="t-orders">—</div></div>
-      <div class="card stat"><div class="label">GMV</div><div class="value" id="t-gmv">—</div></div>
-    </div>
-
-    <div class="card">
-      <h2 style="margin:0 0 12px;font-size:17px;">Shops</h2>
-      <div style="overflow-x:auto;">
-        <table>
-          <thead><tr>
-            <th>Shop</th><th>Owner</th><th>Status</th><th>Trial ends</th>
-            <th>Days left</th><th>Orders</th><th>Disconnected</th>
-          </tr></thead>
-          <tbody id="tenants-body">
-            <tr><td colspan="7" class="muted">Loading…</td></tr>
-          </tbody>
-        </table>
+<!-- PANEL -->
+<div id="panel" class="hidden">
+  <div class="topbar">
+    <div class="inner">
+      <div class="logo"><span class="mark" style="background:var(--ink)">🌸</span><span>BudsBox Admin<small>Multi-tenant control</small></span></div>
+      <div class="row">
+        <button id="exportBtn" class="btn ghost sm">⬇ Export CSV</button>
+        <button id="refreshBtn" class="btn ghost sm">↻ Refresh</button>
+        <button id="signoutBtn" class="btn ghost sm">Sign out</button>
       </div>
     </div>
-  </section>
-</main>
+  </div>
 
+  <div class="wrap" style="padding:20px">
+    <div class="grid-4" style="margin-bottom:18px">
+      <div class="stat"><div class="label">Total shops</div><div class="value" id="tTotal">—</div></div>
+      <div class="stat"><div class="label">Trialing</div><div class="value" id="tTrial">—</div></div>
+      <div class="stat"><div class="label">Active</div><div class="value" id="tActive">—</div></div>
+      <div class="stat"><div class="label">Suspended</div><div class="value" id="tSusp">—</div></div>
+      <div class="stat"><div class="label">Orders</div><div class="value" id="tOrders">—</div></div>
+      <div class="stat"><div class="label">GMV</div><div class="value" id="tGmv">—</div></div>
+    </div>
+
+    <div class="row-between" style="margin-bottom:12px">
+      <h2 style="font-size:18px;margin:0">All shops</h2>
+      <span class="muted">Auto-disconnect: trial cron (daily 03:00 IST)</span>
+    </div>
+    <div id="shopGrid" class="grid-2"></div>
+  </div>
+</div>
+
+<script src="/assets/app.js"></script>
 <script>
-const $ = (id) => document.getElementById(id);
-let secret = sessionStorage.getItem('ob_admin_secret') || '';
+let secret = sessionStorage.getItem('bb_admin_secret') || '';
 
 async function load() {
-  if (!secret) { showGate(); return; }
+  if (!secret) return showGate();
   const headers = { Authorization: `Bearer ${secret}` };
   try {
     const [statsRes, tenantsRes] = await Promise.all([
@@ -107,80 +80,113 @@ async function load() {
       fetch('/api/admin?view=tenants', { headers }),
     ]);
     if (statsRes.status === 401 || tenantsRes.status === 401) {
-      sessionStorage.removeItem('ob_admin_secret');
-      secret = '';
-      $('gate-error').textContent = 'Secret rejected.';
-      showGate();
-      return;
+      sessionStorage.removeItem('bb_admin_secret'); secret = '';
+      $('gateError').textContent = 'Secret galat hai.';
+      return showGate();
     }
-    const stats = await statsRes.json();
-    const { tenants } = await tenantsRes.json();
-    renderStats(stats);
-    renderTenants(tenants);
+    renderStats(await statsRes.json());
+    renderShops((await tenantsRes.json()).tenants);
     $('gate').classList.add('hidden');
     $('panel').classList.remove('hidden');
-    $('refresh').classList.remove('hidden');
-    $('signout').classList.remove('hidden');
-  } catch (err) {
-    $('gate-error').textContent = err.message;
-  }
+  } catch (err) { $('gateError').textContent = err.message; }
 }
 
 function showGate() {
   $('gate').classList.remove('hidden');
   $('panel').classList.add('hidden');
-  $('refresh').classList.add('hidden');
-  $('signout').classList.add('hidden');
 }
 
 function renderStats(s) {
-  $('t-total').textContent = s.tenants.total;
-  $('t-trial').textContent = s.tenants.trialing;
-  $('t-active').textContent = s.tenants.active;
-  $('t-susp').textContent = s.tenants.suspended;
-  $('t-orders').textContent = s.orders.orders;
-  $('t-gmv').textContent = new Intl.NumberFormat(undefined, {
-    style: 'currency', currency: 'USD',
-  }).format((s.orders.revenue_cents || 0) / 100);
+  $('tTotal').textContent = s.tenants.total;
+  $('tTrial').textContent = s.tenants.trialing;
+  $('tActive').textContent = s.tenants.active;
+  $('tSusp').textContent = s.tenants.suspended;
+  $('tOrders').textContent = s.orders.orders;
+  $('tGmv').textContent = rupees(s.orders.revenue_cents);
 }
 
-function renderTenants(tenants) {
-  const body = $('tenants-body');
-  if (!tenants.length) {
-    body.innerHTML = '<tr><td colspan="7" class="muted">No shops yet.</td></tr>';
-    return;
-  }
-  body.innerHTML = tenants.map((t) => `<tr>
-    <td><strong>${esc(t.business_name)}</strong><br><span class="muted">${esc(t.slug)}</span></td>
-    <td class="muted">${esc(t.owner_email)}</td>
-    <td><span class="pill ${t.status}">${t.status}</span></td>
-    <td class="muted">${t.status === 'trialing' ? new Date(t.trial_ends_at).toLocaleString() : '—'}</td>
-    <td>${t.status === 'trialing' ? t.daysLeft : '—'}</td>
-    <td>${t.order_count}</td>
-    <td class="muted">${t.disconnected_at ? new Date(t.disconnected_at).toLocaleString() : '—'}</td>
-  </tr>`).join('');
+function renderShops(shops) {
+  const grid = $('shopGrid');
+  if (!shops.length) { grid.innerHTML = '<div class="card empty">Abhi koi shop nahi.</div>'; return; }
+  grid.innerHTML = shops.map((t) => {
+    const trial = trialLeft(t.trial_ends_at);
+    const locked = t.status === 'suspended' || t.status === 'cancelled';
+    const nextAction = locked ? 'activate' : 'suspend';
+    return `<div class="shop-card anim-up">
+      <div class="row-between" style="align-items:flex-start">
+        <div class="row">
+          <div class="av">🌸</div>
+          <div class="grow">
+            <b style="font-size:14.5px">${escapeHtml(t.business_name)}</b>
+            <div class="muted truncate" style="font-size:11.5px">${escapeHtml(t.owner_email)}</div>
+            <div class="muted" style="font-size:11px">/${escapeHtml(t.slug)}</div>
+          </div>
+        </div>
+        <span class="pill ${t.status}"><span class="dot"></span>${t.status}</span>
+      </div>
+
+      <div class="row" style="gap:10px;margin-top:14px">
+        <div class="mini grow"><div class="k">Trial</div>
+          <div class="v" style="color:${trial.over ? 'var(--red)' : trial.urgent ? 'var(--amber)' : 'var(--ink)'}">
+            ${t.status === 'trialing' ? (trial.over ? 'Expired' : trial.text + ' left') : '—'}
+          </div>
+        </div>
+        <div class="mini grow"><div class="k">Orders</div><div class="v">${t.order_count}</div></div>
+        <div class="mini grow"><div class="k">WhatsApp</div>
+          <div class="v" style="color:${t.connected ? '#14924a' : 'var(--ink-45)'}">${t.connected ? '● Live' : '— off'}</div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px;gap:8px">
+        <button class="btn ${locked ? 'wa' : 'ghost'} sm grow" data-action="${nextAction}" data-slug="${t.slug}">
+          ${locked ? 'Activate' : 'Suspend'}
+        </button>
+        <button class="btn ghost sm" data-action="disconnect" data-slug="${t.slug}" ${t.connected ? '' : 'disabled'}>Disconnect</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
-  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-));
+$('shopGrid').onclick = async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const label = btn.dataset.action;
+  if (!confirm(`${label} — ${btn.dataset.slug}?`)) return;
+  btn.disabled = true;
+  try {
+    await api(`/api/admin?action=${btn.dataset.action}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: btn.dataset.slug }),
+    });
+    toast(`Shop ${label} ho gaya`);
+    await load();
+  } catch (err) { toast(err.message); btn.disabled = false; }
+};
 
-$('gate-form').onsubmit = (e) => {
+$('exportBtn').onclick = async () => {
+  const res = await fetch('/api/admin?view=export', { headers: { Authorization: `Bearer ${secret}` } });
+  if (!res.ok) return toast('Export fail ho gaya');
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `budsbox-shops-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('CSV download ho gaya ⬇');
+};
+
+$('gateForm').onsubmit = (e) => {
   e.preventDefault();
   secret = $('secret').value.trim();
-  sessionStorage.setItem('ob_admin_secret', secret);
-  $('gate-error').textContent = '';
+  sessionStorage.setItem('bb_admin_secret', secret);
+  $('gateError').textContent = '';
   load();
 };
 
-$('signout').onclick = () => {
-  sessionStorage.removeItem('ob_admin_secret');
-  secret = '';
-  $('secret').value = '';
-  showGate();
-};
+$('signoutBtn').onclick = () => { sessionStorage.removeItem('bb_admin_secret'); secret = ''; showGate(); };
+$('refreshBtn').onclick = () => load();
 
-$('refresh').onclick = load;
 load();
 </script>
 </body>
