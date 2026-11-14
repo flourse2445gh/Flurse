@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrderBuds — App</title>
+<style>
+  :root {
+    --bg: #0f1216;
+    --panel: #171b21;
+    --panel-2: #1e242c;
+    --line: #2a323c;
+    --text: #e8edf3;
+    --muted: #93a1b1;
+    --accent: #25d366;
+    --warn: #f5a623;
+    --danger: #ef4d4d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--line);
+    background: var(--panel); position: sticky; top: 0; z-index: 5;
+  }
+  .brand { font-weight: 700; letter-spacing: -.02em; }
+  .brand span { color: var(--accent); }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  .hidden { display: none !important; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px;
+  }
+  .grid { display: grid; gap: 16px; }
+  .stats { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  .stat .label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+  .stat .value { font-size: 28px; font-weight: 700; margin-top: 6px; }
+  h2 { font-size: 17px; margin: 0 0 14px; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  input, button, select {
+    font: inherit; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--text); padding: 10px 12px;
+  }
+  input { flex: 1; min-width: 0; }
+  button {
+    background: var(--accent); color: #06301a; font-weight: 600;
+    border: none; cursor: pointer; padding: 10px 16px;
+  }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  form.stack { display: grid; gap: 10px; }
+  label { font-size: 13px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .pill { padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.pending   { background: #4a3a12; color: #ffd479; }
+  .pill.confirmed { background: #123a4a; color: #7fd3ff; }
+  .pill.fulfilled { background: #123a24; color: #7ff0a8; }
+  .pill.cancelled { background: #4a1616; color: #ff9c9c; }
+  .banner {
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
+    display: flex; gap: 12px; align-items: center; justify-content: space-between;
+  }
+  .banner.trial { background: #3a2f12; color: #ffd479; }
+  .banner.locked { background: #4a1616; color: #ff9c9c; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .error { color: var(--danger); font-size: 13px; min-height: 18px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tabs button { background: transparent; border: 1px solid var(--line); color: var(--muted); font-weight: 500; }
+  .tabs button.active { color: var(--text); border-color: var(--accent); }
+  @media (max-width: 640px) { header { padding: 12px 16px; } main { padding: 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Order<span>Buds</span></div>
+  <div class="row">
+    <span id="who" class="muted"></span>
+    <button id="logout" class="ghost hidden">Log out</button>
+  </div>
+</header>
+
+<main>
+  <!-- Auth -->
+  <section id="auth" class="grid" style="max-width:420px;margin:48px auto;">
+    <div class="tabs">
+      <button id="tab-login" class="active">Log in</button>
+      <button id="tab-signup">Start free trial</button>
+    </div>
+
+    <form id="login-form" class="card stack">
+      <h2>Welcome back</h2>
+      <div><label for="li-email">Email</label><input id="li-email" type="email" required autocomplete="email"></div>
+      <div><label for="li-pass">Password</label><input id="li-pass" type="password" required autocomplete="current-password"></div>
+      <div class="error" id="li-error"></div>
+      <button type="submit">Log in</button>
+    </form>
+
+    <form id="signup-form" class="card stack hidden">
+      <h2>Start your 3-day free trial</h2>
+      <div><label for="su-name">Business name</label><input id="su-name" required></div>
+      <div><label for="su-email">Email</label><input id="su-email" type="email" required></div>
+      <div><label for="su-pass">Password</label><input id="su-pass" type="password" minlength="8" required></div>
+      <div><label for="su-phone">WhatsApp number (optional)</label><input id="su-phone" placeholder="+15551234567"></div>
+      <div class="error" id="su-error"></div>
+      <button type="submit">Create account</button>
+      <p class="muted">No card needed. Full access for 3 days, then your number is disconnected unless you upgrade.</p>
+    </form>
+  </section>
+
+  <!-- Dashboard -->
+  <section id="dash" class="hidden">
+    <div id="banner" class="banner hidden"></div>
+
+    <div class="grid stats" style="margin-bottom:16px;">
+      <div class="card stat"><div class="label">Orders</div><div class="value" id="s-orders">—</div></div>
+      <div class="card stat"><div class="label">Revenue</div><div class="value" id="s-revenue">—</div></div>
+      <div class="card stat"><div class="label">Customers</div><div class="value" id="s-customers">—</div></div>
+      <div class="card stat"><div class="label">Pending</div><div class="value" id="s-pending">—</div></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:12px;">
+        <h2 style="margin:0;">Recent orders</h2>
+        <button id="refresh" class="ghost">Refresh</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr><th>When</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody id="orders-body">
+            <tr><td colspan="6" class="muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    credentials: 'same-origin',
+    headers: options.body ? { 'Content-Type': 'application/json' } : {},
+    ...options,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+const money = (cents, currency = 'USD') =>
+  new Intl.NumberFormat(undefined, { style: 'currency', currency }).format((cents || 0) / 100);
+
+function showAuth(which) {
+  $('auth').classList.remove('hidden');
+  $('dash').classList.add('hidden');
+  $('logout').classList.add('hidden');
+  const login = which !== 'signup';
+  $('login-form').classList.toggle('hidden', !login);
+  $('signup-form').classList.toggle('hidden', login);
+  $('tab-login').classList.toggle('active', login);
+  $('tab-signup').classList.toggle('active', !login);
+}
+
+function renderBanner(tenant) {
+  const el = $('banner');
+  el.className = 'banner';
+  if (tenant.status === 'trialing') {
+    el.classList.add('trial');
+    el.innerHTML = `<span><strong>Trial:</strong> ${tenant.daysLeft} day(s) left.</span>
+      <button data-upgrade="starter">Upgrade</button>`;
+    el.classList.remove('hidden');
+  } else if (tenant.status === 'suspended' || tenant.status === 'cancelled') {
+    el.classList.add('locked');
+    el.innerHTML = `<span><strong>Trial ended.</strong> Your WhatsApp number is disconnected and orders are paused.</span>
+      <button data-upgrade="starter">Upgrade to resume</button>`;
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
+function renderOrders(orders, locked) {
+  const body = $('orders-body');
+  if (!orders.length) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">No orders yet. Send a WhatsApp message to your business number.</td></tr>';
+    return;
+  }
+  body.innerHTML = orders.map((o) => {
+    const items = (o.items || []).map((i) => `${i.quantity}× ${i.name}`).join(', ') || '—';
+    const when = new Date(o.created_at).toLocaleString();
+    const customer = o.display_name || o.wa_id || 'Unknown';
+    const next = o.status === 'pending' ? 'confirmed'
+               : o.status === 'confirmed' ? 'fulfilled' : null;
+    const action = next && !locked
+      ? `<button class="ghost" data-order="${o.id}" data-status="${next}">Mark ${next}</button>`
+      : '';
+    return `<tr>
+      <td class="muted">${when}</td>
+      <td>${escapeHtml(customer)}</td>
+      <td>${escapeHtml(items)}</td>
+      <td>${money(o.total_cents, o.currency)}</td>
+      <td><span class="pill ${o.status}">${o.status}</span></td>
+      <td>${action}</td>
+    </tr>`;
+  }).join('');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+async function loadDashboard() {
+  const data = await api('/api/dashboard');
+  $('auth').classList.add('hidden');
+  $('dash').classList.remove('hidden');
+  $('logout').classList.remove('hidden');
+  $('who').textContent = `${data.tenant.businessName} · ${data.user?.email ?? ''}`.trim();
+
+  renderBanner(data.tenant);
+  $('s-orders').textContent = data.summary.orders;
+  $('s-revenue').textContent = money(data.summary.revenueCents);
+  $('s-customers').textContent = data.summary.customers;
+  $('s-pending').textContent = data.summary.pending;
+
+  const locked = data.tenant.status === 'suspended' || data.tenant.status === 'cancelled';
+  renderOrders(data.orders, locked);
+}
+
+// --- events ---------------------------------------------------------------
+$('tab-login').onclick = () => showAuth('login');
+$('tab-signup').onclick = () => showAuth('signup');
+
+$('login-form').onsubmit = async (e) => {
+  e.preventDefault();
+  $('li-error').textContent = '';
+  try {
+    await api('/api/auth?action=login', {
+      method: 'POST',
+      body: JSON.stringify({ email: $('li-email').value, password: $('li-pass').value }),
+    });
+    await loadDashboard();
+  } catch (err) {
+    $('li-error').textContent = err.message;
+  }
+};
+
+$('signup-form').onsubmit = async (e) => {
+  e.preventDefault();
+  $('su-error').textContent = '';
+  try {
+    await api('/api/onboard', {
+      method: 'POST',
+      body: JSON.stringify({
+        business_name: $('su-name').value,
+        email: $('su-email').value,
+        password: $('su-pass').value,
+        phone: $('su-phone').value || null,
+      }),
+    });
+    await loadDashboard();
+  } catch (err) {
+    $('su-error').textContent = err.message;
+  }
+};
+
+$('logout').onclick = async () => {
+  await api('/api/auth?action=logout', { method: 'POST' });
+  $('who').textContent = '';
+  showAuth('login');
+};
+
+$('refresh').onclick = () => loadDashboard().catch(() => showAuth('login'));
+
+$('banner').onclick = async (e) => {
+  const btn = e.target.closest('button[data-upgrade]');
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    const res = await api('/api/payments?action=upgrade', {
+      method: 'POST',
+      body: JSON.stringify({ plan: btn.dataset.upgrade }),
+    });
+    await loadDashboard();
+    if (res.note) console.info(res.note);
+  } catch (err) {
+    alert(err.message);
+    btn.disabled = false;
+  }
+};
+
+$('orders-body').onclick = async (e) => {
+  const btn = e.target.closest('button[data-order]');
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    await api(`/api/dashboard?order_id=${btn.dataset.order}`, {
+      method: 'POST',
+      body: JSON.stringify({ status: btn.dataset.status }),
+    });
+    await loadDashboard();
+  } catch (err) {
+    alert(err.message);
+    btn.disabled = false;
+  }
+};
+
+// Restore an existing session on load.
+loadDashboard().catch(() => showAuth('login'));
+</script>
+</body>
+</html>
