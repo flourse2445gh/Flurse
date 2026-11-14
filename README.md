@@ -1,4 +1,4 @@
-# OrderBuds
+# BudsBox
 
 Multi-tenant WhatsApp ordering SaaS. Each shop connects its own WhatsApp number and
 gets an AI assistant that turns customer messages into structured orders in a
@@ -51,7 +51,7 @@ tests/e2e.test.js       end-to-end tests against a real Postgres
 2. **Env** — copy `.env.example` to `.env` and fill it in.
 3. **Run** — `npm run dev` serves the API and `public/` on port 3000.
 4. **Test** — `npm test` (needs `TEST_DATABASE_URL`, defaults to
-   `orderbuds_test` on localhost).
+   `budsbox_test` on localhost).
 5. **WhatsApp** — point the Meta app webhook at `https://<domain>/api/webhook`
    and use `WHATSAPP_VERIFY_TOKEN` as the verify token.
 

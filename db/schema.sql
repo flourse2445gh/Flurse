@@ -1,4 +1,4 @@
--- OrderBuds multi-tenant schema.
+-- BudsBox multi-tenant schema.
 -- Every tenant-scoped table carries tenant_id so row access can be filtered
 -- per tenant without cross-tenant joins.
 

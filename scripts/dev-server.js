@@ -58,4 +58,4 @@ const server = createServer(async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-server.listen(port, () => console.log(`OrderBuds dev server on http://localhost:${port}`));
+server.listen(port, () => console.log(`BudsBox dev server on http://localhost:${port}`));

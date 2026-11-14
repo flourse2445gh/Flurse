@@ -7,14 +7,14 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-// End-to-end tests against a real Postgres (orderbuds_test) and the real
+// End-to-end tests against a real Postgres (budsbox_test) and the real
 // handlers in api/. No mocks: the same code paths production runs.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 
 const TEST_DB = process.env.TEST_DATABASE_URL
-  || 'postgres://orderbuds:orderbuds@localhost:5432/orderbuds_test';
+  || 'postgres://budsbox:budsbox@localhost:5432/budsbox_test';
 const PORT = 3999;
 const BASE = `http://localhost:${PORT}`;
 

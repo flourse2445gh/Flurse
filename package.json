@@ -1,9 +1,9 @@
 {
-  "name": "orderbuds",
+  "name": "budsbox",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "OrderBuds - multi-tenant WhatsApp ordering SaaS with a 3-day trial",
+  "description": "BudsBox - multi-tenant WhatsApp ordering SaaS with a 3-day trial",
   "engines": {
     "node": ">=20"
   },
