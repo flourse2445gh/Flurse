@@ -518,13 +518,13 @@
             <div class="p-4 border-b border-ink/5">
               <div class="bg-cream rounded-xl px-3 py-2 flex items-center gap-2">
                 <span class="text-ink/30 text-sm">🔍</span>
-                <input placeholder="Search customer…" class="bg-transparent outline-none text-[13px] w-full placeholder:text-ink/30" />
+                <input id="chatSearch" oninput="setSearch(this.value)" placeholder="Search customer…" class="bg-transparent outline-none text-[13px] w-full placeholder:text-ink/30" />
               </div>
               <div class="mt-3 flex gap-1.5 overflow-x-auto thin-scroll">
-                <button class="filter-chip active shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full bg-ink text-white">All</button>
-                <button class="filter-chip shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full bg-ink/5 text-ink/50">New</button>
-                <button class="filter-chip shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full bg-ink/5 text-ink/50">Ordered</button>
-                <button class="filter-chip shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full bg-ink/5 text-ink/50">Delivered</button>
+                <button data-filter="all" onclick="setFilter('all')" class="filter-chip shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full bg-ink text-white">All</button>
+                <button data-filter="new" onclick="setFilter('new')" class="filter-chip shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full bg-ink/5 text-ink/50">New</button>
+                <button data-filter="ordered" onclick="setFilter('ordered')" class="filter-chip shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full bg-ink/5 text-ink/50">Ordered</button>
+                <button data-filter="delivered" onclick="setFilter('delivered')" class="filter-chip shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full bg-ink/5 text-ink/50">Delivered</button>
               </div>
             </div>
             <div id="chatList" class="thin-scroll overflow-y-auto max-h-[420px] lg:max-h-[560px]"></div>
@@ -536,8 +536,8 @@
             <div id="chatBody" class="flex-1 bg-[#efeae2] p-4 space-y-2.5 overflow-y-auto thin-scroll max-h-[420px] lg:max-h-[480px]"></div>
             <div class="p-3 border-t border-ink/5">
               <div class="flex items-center gap-2">
-                <input placeholder="Type a message (AI auto-replies)…" class="flex-1 bg-cream rounded-xl px-4 py-3 text-[13px] outline-none placeholder:text-ink/30" />
-                <button class="w-11 h-11 rounded-xl bg-wa grid place-items-center text-white text-lg active:scale-95 transition">➤</button>
+                <input id="composerInput" onkeydown="if(event.key==='Enter')sendMessage()" placeholder="Type a message (AI auto-replies)…" class="flex-1 bg-cream rounded-xl px-4 py-3 text-[13px] outline-none placeholder:text-ink/30" />
+                <button onclick="sendMessage()" class="w-11 h-11 rounded-xl bg-wa grid place-items-center text-white text-lg active:scale-95 transition">➤</button>
               </div>
             </div>
           </div>
@@ -877,6 +877,17 @@ function simulateScan() {
   const c = document.getElementById('joinStateC');
   c.classList.remove('hidden');
   c.classList.add('animate-fadeUp');
+
+  // Session connect hone par shop ko live mark karo
+  const shopId = new URLSearchParams(location.search).get('shop') || 'budsbow-flowers-hsr';
+  const shop = clients.find(x => x.id === shopId);
+  if (shop) {
+    shop.status = 'connected';
+    shop.active = true;
+    if (shop.number === '—') shop.number = '+91 98861 22334';
+    renderClients();
+    if (!document.getElementById('screen-dashboard').classList.contains('hidden')) renderChats();
+  }
   toast('WhatsApp connected ✅');
 }
 
@@ -1021,6 +1032,34 @@ function exportCSV() {
    CLIENT DASHBOARD — WhatsApp Web jaisa UI
    ============================================================ */
 let activeChatId = 'b1';
+let chatSearch = '';
+let chatFilter = 'all';
+
+function setSearch(v) {
+  chatSearch = v.trim().toLowerCase();
+  renderChats();
+}
+
+function setFilter(f) {
+  chatFilter = f;
+  document.querySelectorAll('.filter-chip').forEach(b => {
+    const on = b.dataset.filter === f;
+    b.className = 'filter-chip shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full transition ' +
+      (on ? 'bg-ink text-white' : 'bg-ink/5 text-ink/50 hover:bg-ink/10');
+  });
+  renderChats();
+}
+
+function visibleBookings() {
+  return bookings.filter(b => {
+    if (chatFilter !== 'all' && b.status !== chatFilter) return false;
+    if (chatSearch) {
+      const hay = (b.customer + ' ' + b.number).toLowerCase();
+      if (!hay.includes(chatSearch)) return false;
+    }
+    return true;
+  });
+}
 
 function renderChats() {
   // Trial text header me
@@ -1032,7 +1071,13 @@ function renderChats() {
   // Chat list
   const list = document.getElementById('chatList');
   list.innerHTML = '';
-  bookings.forEach(b => {
+  const rows = visibleBookings();
+
+  if (rows.length === 0) {
+    list.innerHTML = '<p class="px-4 py-8 text-center text-[12px] text-ink/35">Koi customer match nahi hua</p>';
+  }
+
+  rows.forEach(b => {
     const last = b.messages[b.messages.length - 1];
     const st = BOOKING_MAP[b.status];
     const on = b.id === activeChatId;
@@ -1059,9 +1104,18 @@ function renderChats() {
     list.appendChild(row);
   });
 
-  // Active chat
-  const chat = bookings.find(b => b.id === activeChatId);
-  if (!chat) return;
+  // Active chat — filter me na ho to pehli visible chat par switch karo
+  let chat = bookings.find(b => b.id === activeChatId);
+  if (!chat || !rows.some(b => b.id === activeChatId)) {
+    chat = rows[0];
+    activeChatId = chat ? chat.id : null;
+  }
+  if (!chat) {
+    document.getElementById('chatHeader').innerHTML = '';
+    document.getElementById('chatBody').innerHTML =
+      '<p class="text-center text-[12px] text-ink/35 m-auto">Koi chat select karo</p>';
+    return;
+  }
 
   const st = BOOKING_MAP[chat.status];
   document.getElementById('chatHeader').innerHTML = `
@@ -1104,6 +1158,35 @@ function setBookingStatus(id, status) {
   b.status = status;
   renderChats();
   toast(`Booking status → ${BOOKING_MAP[status].label}`);
+}
+
+function nowTime() {
+  return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function sendMessage() {
+  const input = document.getElementById('composerInput');
+  const text = input.value.trim();
+  if (!text) return;
+
+  const chat = bookings.find(b => b.id === activeChatId);
+  if (!chat) return;
+
+  const t = nowTime();
+  chat.messages.push({ from: 'out', text, t });
+  chat.time = t;
+  input.value = '';
+  renderChats();
+
+  // Demo AI auto-reply — real app me ye WhatsApp event se aayega
+  setTimeout(() => {
+    chat.messages.push({
+      from: 'out',
+      text: 'Noted 👍 Main aapko best options bhejta hu. Budget aur occasion bata dein.',
+      t: nowTime()
+    });
+    renderChats();
+  }, 900);
 }
 
 
