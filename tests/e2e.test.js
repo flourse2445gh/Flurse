@@ -71,6 +71,7 @@ before(async () => {
   process.env.WHATSAPP_APP_SECRET = 'test-app-secret';
   process.env.WHATSAPP_VERIFY_TOKEN = 'test-verify-token';
   process.env.CRON_SECRET = 'test-cron-secret';
+  process.env.ADMIN_SECRET = 'test-admin-secret';
   process.env.TRIAL_DAYS = '3';
   process.env.OPENAI_API_KEY = ''; // exercise the deterministic parser
 
@@ -420,7 +421,7 @@ test('the admin view is secret-gated and reports cross-tenant stats', async () =
   assert.equal(denied.status, 401);
 
   const res = await fetch(`${BASE}/api/admin?view=stats`, {
-    headers: { Authorization: 'Bearer test-cron-secret' },
+    headers: { Authorization: 'Bearer test-admin-secret' },
   });
   assert.equal(res.status, 200);
   const body = await res.json();
@@ -540,7 +541,7 @@ test('conversations expose threads and record manual replies', async () => {
 });
 
 test('the operator can suspend, activate and export shops', async () => {
-  const auth = { Authorization: 'Bearer test-cron-secret' };
+  const auth = { Authorization: 'Bearer test-admin-secret' };
 
   const suspend = await fetch(`${BASE}/api/admin?action=suspend`, {
     method: 'POST',

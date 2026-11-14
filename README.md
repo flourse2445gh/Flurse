@@ -22,9 +22,14 @@ Vercel marketplace.
 ## Logging in
 
 - **Shop owner:** open `/app` and log in, or click "Start free trial" to create a shop.
-- **Operator (you):** open `/admin` and enter the operator secret (`ADMIN_SECRET`).
-  From there you can see every shop, its trial countdown and order count, and
-  **Disconnect**, **Suspend** or **Activate** any shop.
+- **Operator (you):** open `/admin`. From there you can see every shop, its
+  trial countdown and order count, and **Disconnect**, **Suspend** or
+  **Activate** any shop.
+  - While `ADMIN_SECRET` is unset the panel is **open** — no login at all.
+    That is fine for setting the platform up, but anyone with the URL can
+    then suspend or disconnect real shops.
+  - To lock it, set `ADMIN_SECRET` in the Vercel env and redeploy. The panel
+    then asks for that secret. No code change is needed either way.
 
 ## Layout
 
