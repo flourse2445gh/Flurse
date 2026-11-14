@@ -25,8 +25,12 @@ messages into orders and shows them in a dashboard. 3-day trial, then
 ## Deploy
 
 - Vercel project `flowers`, aliased to `https://flowers-one-puce.vercel.app`.
-- `.vercel/project.json` points at that project. Deploy with
-  `vercel --prod` (uses the `Vercel_token` secret).
+- The project is **not** linked to GitHub (`link: null`), so a `git push`
+  does not trigger a build. Deploy from the CLI instead:
+  `vercel --prod --yes --token "$Vercel_token"` from the repo root (the
+  `.vercel/project.json` id is `prj_7VyDNo8e35coEjEmh6KLksbH9Kmf`,
+  team `team_KzNJiOJKwipHpImVp8JH6OSf`). Relinking Git needs a Vercel
+  account "Login Connection" first.
 - Production DB is Neon; connection string is in the Vercel env
   (`DATABASE_URL`). Local dev uses the local Postgres in `.env`.
 
