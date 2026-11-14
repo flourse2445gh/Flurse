@@ -74,6 +74,7 @@
         <span id="shopName">—<small id="shopStatus">loading…</small></span>
       </div>
       <div class="row">
+        <button id="waChip" class="pill hidden" type="button" style="border:none;cursor:pointer;font:inherit" title="WhatsApp connection"></button>
         <span id="trialChip" class="pill trialing hidden"></span>
         <button id="payBtn" class="btn sm">Pay ₹599</button>
         <button id="logoutBtn" class="btn ghost sm">Log out</button>
@@ -174,9 +175,17 @@
             <div class="error" id="waError"></div>
             <div class="row">
               <button class="btn wa" type="submit" id="waSubmit">Save &amp; connect</button>
-              <button class="btn ghost" type="button" id="waDisconnect">Disconnect</button>
             </div>
           </form>
+
+          <div class="divider"></div>
+
+          <h3 style="font-size:14px">Disconnect</h3>
+          <p class="muted" style="margin:6px 0 12px">
+            Number hatana hai? Disconnect dabao — AI turant ruk jayega aur is number par koi auto-reply nahi jayegi.
+            Aapka data (orders, chats) safe rehta hai, aur kabhi bhi dobara connect kar sakte ho.
+          </p>
+          <button class="btn ghost" type="button" id="waDisconnect" style="color:var(--red);border-color:rgba(239,77,77,.35)">🔌 Disconnect WhatsApp number</button>
         </div>
         <div class="card">
           <h3>Connection status</h3>
@@ -519,7 +528,24 @@ async function loadWhatsApp() {
        <p class="muted" style="margin-top:10px">Phone number ID: <b>${escapeHtml(wa.phoneNumberId)}</b><br>API: ${escapeHtml(wa.apiVersion)}</p>`
     : `<span class="pill qr_pending"><span class="dot"></span>Not connected</span>
        <p class="muted" style="margin-top:10px">Abhi koi WhatsApp number juda nahi hai. Left side form bharo.</p>`;
+  $('waDisconnect').disabled = !wa.connected;
+  renderWaChip();
 }
+
+function renderWaChip() {
+  const wa = state.wa;
+  const chip = $('waChip');
+  if (!wa) { chip.classList.add('hidden'); return; }
+  chip.classList.remove('hidden');
+  chip.className = 'pill ' + (wa.connected ? 'active' : 'qr_pending');
+  chip.innerHTML = `<span class="dot"></span>WhatsApp ${wa.connected ? 'connected' : 'off'}`;
+}
+
+$('waChip').onclick = () => {
+  document.querySelectorAll('.tab[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'whatsapp'));
+  document.querySelectorAll('.tabpane').forEach((p) => p.classList.add('hidden'));
+  $('tab-whatsapp').classList.remove('hidden');
+};
 
 $('waForm').onsubmit = async (e) => {
   e.preventDefault();
@@ -535,8 +561,8 @@ $('waForm').onsubmit = async (e) => {
 };
 
 $('waDisconnect').onclick = async () => {
-  if (!confirm('WhatsApp number disconnect karna hai?')) return;
-  try { await api('/api/whatsapp', { method: 'DELETE' }); await loadWhatsApp(); toast('Number disconnect ho gaya'); }
+  if (!confirm('WhatsApp number disconnect karna hai? AI turant ruk jayega (data safe rahega).')) return;
+  try { await api('/api/whatsapp', { method: 'DELETE' }); await loadWhatsApp(); toast('Number disconnect ho gaya 🔌'); }
   catch (err) { toast(err.message); }
 };
 
