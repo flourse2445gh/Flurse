@@ -51,5 +51,8 @@ messages into orders and shows them in a dashboard. 3-day trial, then
   `/api/whatsapp`, surfaced in that tab and as a header chip (`waChip`).
 - Design system lives in `public/assets/app.css`; the landing page uses the
   Tailwind CDN with the BudsBox theme inlined in its `<head>`.
+- `/admin` runs **open** while `ADMIN_SECRET` is unset: no login, and
+  `ADMIN_SECRET` is what gates it once set (`CRON_SECRET` no longer does).
+  Set `ADMIN_SECRET` in Vercel and redeploy to lock the panel.
 - Webhook replies are best-effort: the message is stored before the send is
   attempted, so an outage never loses a shop's reply.
