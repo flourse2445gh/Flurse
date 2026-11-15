@@ -63,7 +63,10 @@ messages into orders and shows them in a dashboard. 3-day trial, then
   English, Hinglish (Roman-script Hindi), or Hindi (Devanagari) — detected by
   `detectLanguage`. The language instruction is restated at the end of the
   user turn, because `shop_tone` may itself mention a language and would
-  otherwise drag an English reply into Hinglish.
+  otherwise drag an English reply into Hinglish. Detection counts Hinglish
+  words, and any single word no English message uses ("chahiye", "gulab",
+  "mujhe", "aap") is enough on its own — otherwise "rose chahiye" reads as
+  English. Devanagari anywhere means Hindi.
 - **Greeting and length**: a first message that is only a hello ("Hi", "hii",
   "namaste") is answered with a fixed short greeting — `Hi! Kya chahiye aapko? 😊`
   (Devanagari hello gets `Hi! क्या चाहिए आपको? 😊`) — with no provider call, so it
