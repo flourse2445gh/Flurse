@@ -25,7 +25,7 @@ messages into orders and shows them in a dashboard. 3-day trial, then
 
 ## Deploy
 
-- Vercel project `flowers`, aliased to `https://flowers-one-puce.vercel.app`.
+- Vercel project `flowers`, aliased to `https://budsbox.vercel.app`.
 - The project is **not** linked to GitHub (`link: null`), so a `git push`
   does not trigger a build. Deploy from the CLI instead:
   `vercel --prod --yes --token "$Vercel_token"` from the repo root (the

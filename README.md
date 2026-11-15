@@ -5,7 +5,7 @@ gets an AI assistant that turns customer messages into structured orders in a
 dashboard. Shops start on a 3-day free trial; when it ends the platform
 automatically disconnects the number until the shop upgrades.
 
-**Live:** https://flowers-one-puce.vercel.app — landing page, shop app at `/app`,
+**Live:** https://budsbox.vercel.app — landing page, shop app at `/app`,
 operator panel at `/admin`. Postgres runs on Neon, provisioned through the
 Vercel marketplace.
 
