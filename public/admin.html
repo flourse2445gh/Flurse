@@ -72,10 +72,10 @@
 let secret = sessionStorage.getItem('bb_admin_secret') || '';
 
 async function load() {
-  // Always ask for the data first. With ADMIN_SECRET unset the API answers
-  // without a token, so the panel opens straight away; when a secret is set
-  // the 401 sends us to the gate.
-  const headers = secret ? { Authorization: `Bearer ${secret}` } : {};
+  // The API is locked until ADMIN_SECRET is set on the server, so there is
+  // nothing to show without a secret — go straight to the gate.
+  if (!secret) return showGate();
+  const headers = { Authorization: `Bearer ${secret}` };
   try {
     const [statsRes, tenantsRes] = await Promise.all([
       fetch('/api/admin?view=stats', { headers }),

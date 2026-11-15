@@ -5,12 +5,12 @@ import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.j
 // Cross-tenant operator view. Guarded by a bearer secret, not a user session,
 // so it stays off the tenant dashboard surface entirely.
 //
-// When ADMIN_SECRET is unset the panel runs in open mode: no login, anyone who
-// reaches /admin can read every shop and suspend or disconnect it. That is
-// fine while setting the platform up, but set ADMIN_SECRET before going live.
+// Locked by default: with ADMIN_SECRET unset the panel is closed, not open.
+// Forgetting to set the secret must never leave every shop's owner email and
+// lifecycle controls readable by anyone who finds /admin.
 function requireAdmin(req) {
   const secret = process.env.ADMIN_SECRET;
-  if (!secret) return;
+  if (!secret) throw new HttpError(401, 'Operator panel is not configured');
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (token !== secret) throw new HttpError(401, 'Unauthorized');

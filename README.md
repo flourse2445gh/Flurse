@@ -22,9 +22,10 @@ Vercel marketplace.
 ## Logging in
 
 - **Shop owner:** open `/app` and log in, or click "Start free trial" to create a shop.
-- **Operator (you):** open `/admin`. From there you can see every shop, its
-  trial countdown and order count, and **Disconnect**, **Suspend** or
-  **Activate** any shop.
+- **Operator (you):** open `/admin` and enter `ADMIN_SECRET`. Until that env
+  var is set the panel is locked. From there you can see every shop, its trial
+  countdown and order count, and **Disconnect**, **Suspend** or **Activate**
+  any shop.
   - While `ADMIN_SECRET` is unset the panel is **open** — no login at all.
     That is fine for setting the platform up, but anyone with the URL can
     then suspend or disconnect real shops.
@@ -77,7 +78,7 @@ tests/e2e.test.js       end-to-end tests against a real Postgres
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string |
 | `SESSION_SECRET` | signs shop session cookies |
-| `ADMIN_SECRET` | operator panel + admin API (falls back to `CRON_SECRET`) |
+| `ADMIN_SECRET` | operator panel + admin API password (panel is locked while unset) |
 | `WHATSAPP_VERIFY_TOKEN` | Meta webhook verification |
 | `WHATSAPP_APP_SECRET` | verifies inbound webhook signatures |
 | `WHATSAPP_ACCESS_TOKEN` | sends replies via the Cloud API |

@@ -438,6 +438,19 @@ test('the admin view is secret-gated and reports cross-tenant stats', async () =
   assert.equal(body.tenants.trialing, 1);
 });
 
+test('the operator panel is locked when no secret is configured', async () => {
+  const saved = process.env.ADMIN_SECRET;
+  delete process.env.ADMIN_SECRET;
+  try {
+    const res = await fetch(`${BASE}/api/admin`);
+    assert.equal(res.status, 401, 'an unset secret must not mean open access');
+    const stats = await fetch(`${BASE}/api/admin?view=stats`);
+    assert.equal(stats.status, 401);
+  } finally {
+    process.env.ADMIN_SECRET = saved;
+  }
+});
+
 test('a shop manages its catalog in rupees', async () => {
   const login = await api('/api/auth?action=login', {
     method: 'POST',
