@@ -1274,6 +1274,10 @@ test('asking how to pay sends the shop QR and never spends an AI call', async ()
     body: { email: 'owner@test.cafe', password: 'supersecret123' },
   });
   await api('/api/shop?qr', { method: 'POST', cookie: login.cookie, body: { image: QR_PNG } });
+  await api('/api/shop', {
+    method: 'POST', cookie: login.cookie,
+    body: { shop_payment_name: 'Koramangala Flowers' },
+  });
   await query(
     "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
   );
@@ -1314,6 +1318,7 @@ test('asking how to pay sends the shop QR and never spends an AI call', async ()
     assert.match(sent[0].image.caption, /scan/i);
 
     assert.equal(fake.seen.length, 0, 'no AI provider was called for a payment question');
+    assert.match(sent[0].image.caption, /Naam "Koramangala Flowers" dikhna chahiye/, 'the payee name travels with the QR');
 
     // The question and the answer are both on the thread.
     const { rows } = await query(

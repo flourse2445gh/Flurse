@@ -102,7 +102,9 @@ messages into orders and shows them in a dashboard. 3-day trial, then
   can fetch it. When an inbound message looks like a payment question
   (`wantsPaymentInfo()` in `lib/whatsapp.js` — pay/upi/qr/scan/paisa/भुगतान…),
   the webhook sends that QR image with a short caption and **returns before any
-  AI call**, so a payment question never spends a credit. Falls back to the UPI
+  AI call**, so a payment question never spends a credit. The caption carries
+  the payee name (`shop_payment_name`) so the customer can confirm the money
+  reaches the right shop before paying. Falls back to the UPI
   id text if the image send fails. Only fires when a QR is uploaded; otherwise
   the normal AI reply handles it. `PUBLIC_BASE_URL` overrides the link base
   (falls back to Vercel's production URL).

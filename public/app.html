@@ -226,6 +226,8 @@
               <input id="setTone" placeholder="Warm, short, 'bhaiya' jaisa, thoda Hinglish"></div>
             <div class="field"><label for="setUpi">UPI id (payment lene ke liye)</label>
               <input id="setUpi" placeholder="koramangalaflowers@okhdfcbank"></div>
+            <div class="field"><label for="setPayName">Payment naam (QR scan karne par jo naam dikhta hai)</label>
+              <input id="setPayName" placeholder="Koramangala Flowers"></div>
             <div class="field"><label for="setQr">Payment QR (apne UPI app ka screenshot)</label>
               <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
                 <img id="qrPreview" alt="" style="width:64px;height:64px;object-fit:contain;border:1px solid var(--line);border-radius:10px;display:none">
@@ -695,6 +697,7 @@ async function loadSettings() {
   $('setDelivery').value = settings.shop_delivery || '';
   $('setTone').value = settings.shop_tone || '';
   $('setUpi').value = settings.shop_upi_id || '';
+  $('setPayName').value = settings.shop_payment_name || '';
   if (settings.paymentQr) {
     $('qrPreview').src = settings.paymentQr;
     $('qrPreview').style.display = 'block';
@@ -716,6 +719,7 @@ $('setForm').onsubmit = async (e) => {
       shop_delivery: $('setDelivery').value,
       shop_tone: $('setTone').value,
       shop_upi_id: $('setUpi').value,
+      shop_payment_name: $('setPayName').value,
       shop_instructions: $('setInstructions').value,
     }) });
     toast('Shop profile save ho gaya ✅');

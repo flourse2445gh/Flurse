@@ -20,6 +20,7 @@ const FIELDS = [
   'shop_tone',
   'shop_instructions',
   'shop_upi_id',
+  'shop_payment_name',
 ];
 
 const SELECT = `business_name, owner_phone, shop_payment_qr_token, ${FIELDS.join(', ')}`;
