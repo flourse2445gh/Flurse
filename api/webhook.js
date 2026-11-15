@@ -105,7 +105,7 @@ async function handleMessage(message) {
   // their own QR, every time, without spending an AI call on it. Only when a
   // QR is actually uploaded — otherwise fall through to the normal reply.
   const qrUrl = tenant.shop_payment_qr_token && publicBaseUrl()
-    ? `${publicBaseUrl()}/api/qr?t=${tenant.shop_payment_qr_token}`
+    ? `${publicBaseUrl()}/api/shop?qr=${tenant.shop_payment_qr_token}`
     : null;
   if (qrUrl && wantsPaymentInfo(message.text)) {
     const turn = await recordInboundOnly({ tenant, message });

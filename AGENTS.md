@@ -98,7 +98,7 @@ messages into orders and shows them in a dashboard. 3-day trial, then
   resolves "kal shaam 6 baje" in IST without the model, as a backstop.
 - **Payment QR shortcut (no AI).** The shop owner uploads their own payment QR
   in Shop profile (`POST /api/shop?qr`, PNG/JPEG/WebP data URL, <=400 KB). It is
-  stored as a data URL and served publicly at `GET /api/qr?t=<token>` so WhatsApp
+  stored as a data URL and served publicly at `GET /api/shop?qr=<token>` so WhatsApp
   can fetch it. When an inbound message looks like a payment question
   (`wantsPaymentInfo()` in `lib/whatsapp.js` — pay/upi/qr/scan/paisa/भुगतान…),
   the webhook sends that QR image with a short caption and **returns before any
