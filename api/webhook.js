@@ -69,7 +69,7 @@ async function handleMessage(message) {
   const { rows: tenants } = await query(
     `SELECT id, status, wa_phone_number_id, wa_access_token, business_name,
             shop_address, shop_hours, shop_delivery, shop_tone, shop_instructions,
-            shop_upi_id, shop_payment_qr_token
+            shop_upi_id, shop_payment_name, shop_payment_qr_token
        FROM tenants WHERE wa_phone_number_id = $1`,
     [message.phoneNumberId],
   );
@@ -105,16 +105,24 @@ async function handleMessage(message) {
   // their own QR, every time, without spending an AI call on it. Only when a
   // QR is actually uploaded — otherwise fall through to the normal reply.
   const qrUrl = tenant.shop_payment_qr_token && publicBaseUrl()
-    ? `${publicBaseUrl()}/api/qr?t=${tenant.shop_payment_qr_token}`
+    ? `${publicBaseUrl()}/api/shop?qr=${tenant.shop_payment_qr_token}`
     : null;
   if (qrUrl && wantsPaymentInfo(message.text)) {
     const turn = await recordInboundOnly({ tenant, message });
     if (!turn) return; // duplicate delivery
 
     const cents = await openAmountFor(tenant.id, turn.customerId);
-    const caption = cents
-      ? `Scan karke ₹${(cents / 100).toFixed(0)} pay kar dijiye 🙏`
-      : 'Payment ke liye ye QR scan kijiye 🙏';
+    const amount = cents ? `₹${(cents / 100).toFixed(0)}` : '';
+    // The payee name travels with the QR, so the customer can confirm the money
+    // reaches the right shop before paying.
+    const name = tenant.shop_payment_name?.trim();
+    const caption = amount && name
+      ? `Scan karke ${amount} bhejiye. Naam "${name}" dikhna chahiye 🙏`
+      : amount
+        ? `Scan karke ${amount} pay kar dijiye 🙏`
+        : name
+          ? `Payment ke liye ye QR scan kijiye. Naam "${name}" dikhna chahiye 🙏`
+          : 'Payment ke liye ye QR scan kijiye 🙏';
 
     if (tenant.wa_access_token) {
       try {
@@ -133,7 +141,9 @@ async function handleMessage(message) {
             phoneNumberId: tenant.wa_phone_number_id,
             accessToken: tenant.wa_access_token,
             to: message.from,
-            body: `${caption} UPI: ${tenant.shop_upi_id}`,
+            body: tenant.shop_payment_name
+              ? `${caption} UPI: ${tenant.shop_upi_id} (${tenant.shop_payment_name})`
+              : `${caption} UPI: ${tenant.shop_upi_id}`,
           }).catch(() => {});
         }
       }

@@ -1,7 +1,7 @@
 import { query } from '../lib/db.js';
 import { requireSession, assertTenantWritable } from '../lib/auth.js';
 import { draftReply, availableProviders, parseOrder } from '../lib/ai.js';
-import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
+import { handler, readJson, json, error, requireMethod, HttpError } from '../lib/http.js';
 import { publicBaseUrl } from '../lib/whatsapp.js';
 import crypto from 'node:crypto';
 
@@ -20,6 +20,7 @@ const FIELDS = [
   'shop_tone',
   'shop_instructions',
   'shop_upi_id',
+  'shop_payment_name',
 ];
 
 const SELECT = `business_name, owner_phone, shop_payment_qr_token, ${FIELDS.join(', ')}`;
@@ -32,7 +33,7 @@ function withQrUrl(settings) {
   const base = publicBaseUrl();
   return {
     ...rest,
-    paymentQr: token && base ? `${base}/api/qr?t=${token}` : null,
+    paymentQr: token && base ? `${base}/api/shop?qr=${token}` : null,
   };
 }
 
@@ -61,6 +62,28 @@ async function saveSettings(req, res, session) {
     [session.tenant_id, ...columns.map((c) => updates[c])],
   );
   json(res, 200, { settings: withQrUrl(rows[0]) });
+}
+
+// GET /api/shop?qr=<token> -> the shop's payment QR as an image.
+//
+// Public on purpose: a payment QR is meant to be shown to customers, and
+// WhatsApp fetches the picture from here to deliver it. The token keeps it
+// unguessable. Served from this function rather than its own file because the
+// Hobby plan allows only twelve serverless functions.
+async function serveQr(res, token) {
+  const { rows } = await query(
+    'SELECT shop_payment_qr FROM tenants WHERE shop_payment_qr_token = $1',
+    [token],
+  );
+  const match = rows[0]?.shop_payment_qr?.match(/^data:(image\/(?:png|jpe?g|webp));base64,(.+)$/);
+  if (!match) {
+    error(res, 404, 'No payment QR for this shop');
+    return;
+  }
+  res.statusCode = 200;
+  res.setHeader('Content-Type', match[1]);
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.end(Buffer.from(match[2], 'base64'));
 }
 
 // The shop owner uploads their own payment QR (a screenshot from their UPI
@@ -152,6 +175,15 @@ async function previewReply(req, res, session) {
 // POST /api/shop          -> update settings
 // POST /api/shop?preview  -> draft a sample reply
 export default handler(async (req, res) => {
+  const params = new URL(req.url, 'http://localhost').searchParams;
+
+  // The QR image is public and token-gated, so it is served before any session
+  // check — WhatsApp has no cookie.
+  if (req.method === 'GET' && params.get('qr')) {
+    await serveQr(res, params.get('qr'));
+    return;
+  }
+
   const session = await requireSession(req);
 
   if (req.url?.includes('preview')) {

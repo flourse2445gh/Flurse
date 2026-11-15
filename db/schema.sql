@@ -242,6 +242,11 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_upi_id TEXT;
 -- The shop's own payment QR, stored as a data URL so no file host is needed.
 -- The token is what the public image URL uses; without it the QR is not
 -- reachable by guessing ids.
+-- The name that shows up in the UPI app after scanning the shop's QR. Sent to
+-- the customer with the QR so they can check the money reaches the right shop
+-- and not somewhere else.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_payment_name TEXT;
+
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_payment_qr TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_payment_qr_token TEXT;
 CREATE INDEX IF NOT EXISTS tenants_qr_token_idx ON tenants (shop_payment_qr_token)

@@ -98,7 +98,6 @@ before(async () => {
     '/api/products': '../api/products.js',
     '/api/whatsapp': '../api/whatsapp.js',
     '/api/shop': '../api/shop.js',
-    '/api/qr': '../api/qr.js',
     
     '/api/admin': '../api/admin.js',
     '/api/payments': '../api/payments.js',
@@ -1243,7 +1242,7 @@ test('a shop can upload a payment QR and it is served publicly under a token', a
     method: 'POST', cookie: login.cookie, body: { image: QR_PNG },
   });
   assert.equal(saved.status, 200);
-  assert.match(saved.body.settings.paymentQr, /^http:\/\/[^/]+\/api\/qr\?t=[0-9a-f]{32}$/);
+  assert.match(saved.body.settings.paymentQr, /^http:\/\/[^/]+\/api\/shop\?qr=[0-9a-f]{32}$/);
   // The base64 blob must not be shipped to the browser.
   assert.equal(saved.body.settings.shop_payment_qr, undefined);
 
@@ -1255,7 +1254,7 @@ test('a shop can upload a payment QR and it is served publicly under a token', a
   assert.equal(bytes.toString('base64'), QR_PNG.split(',')[1], 'the exact uploaded bytes come back');
 
   // A wrong token reveals nothing.
-  const wrong = await fetch(`${BASE}/api/qr?t=deadbeef`);
+  const wrong = await fetch(`${BASE}/api/shop?qr=deadbeef`);
   assert.equal(wrong.status, 404);
 
   // Clearing removes it.
@@ -1274,6 +1273,10 @@ test('asking how to pay sends the shop QR and never spends an AI call', async ()
     body: { email: 'owner@test.cafe', password: 'supersecret123' },
   });
   await api('/api/shop?qr', { method: 'POST', cookie: login.cookie, body: { image: QR_PNG } });
+  await api('/api/shop', {
+    method: 'POST', cookie: login.cookie,
+    body: { shop_payment_name: 'Koramangala Flowers' },
+  });
   await query(
     "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
   );
@@ -1310,10 +1313,11 @@ test('asking how to pay sends the shop QR and never spends an AI call', async ()
 
     assert.equal(sent.length, 1, 'one WhatsApp message is sent');
     assert.equal(sent[0].type, 'image', 'and it is the QR image');
-    assert.match(sent[0].image.link, /\/api\/qr\?t=[0-9a-f]+$/);
+    assert.match(sent[0].image.link, /\/api\/shop\?qr=[0-9a-f]{32}$/);
     assert.match(sent[0].image.caption, /scan/i);
 
     assert.equal(fake.seen.length, 0, 'no AI provider was called for a payment question');
+    assert.match(sent[0].image.caption, /Naam "Koramangala Flowers" dikhna chahiye/, 'the payee name travels with the QR');
 
     // The question and the answer are both on the thread.
     const { rows } = await query(
