@@ -39,7 +39,7 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
   `git push https://flourse2445gh:${GITHUB_TOKEN}@github.com/flourse2445gh/Flurse.git phase-1-backend:phase-1-backend`
 
 ## Test kaise chalate hain
-- `npm test` (node --test). 28 tests hain, sab pass hone chahiye.
+- `npm test` (node --test). 32 tests hain, sab pass hone chahiye.
 - Postgres chahiye. Docker is env me kaam nahi karta. Isliye:
   ```
   sudo apt-get install -y postgresql
@@ -63,7 +63,7 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 - `db/schema.sql`, `vercel.json`, `tests/e2e.test.js`, `scripts/`
 
 ## Jo kaam HO CHUKA hai (dobara mat banao)
-- Multi-tenant backend + 28 passing tests
+- Multi-tenant backend + 32 passing tests
 - Operator panel: saari shops, trial countdown, order count,
   Suspend / Activate / Disconnect / Export CSV
 - Shop dashboard: orders, catalog (rupees), chat inbox, manual reply

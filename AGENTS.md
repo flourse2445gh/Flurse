@@ -64,6 +64,13 @@ messages into orders and shows them in a dashboard. 3-day trial, then
   `detectLanguage`. The language instruction is restated at the end of the
   user turn, because `shop_tone` may itself mention a language and would
   otherwise drag an English reply into Hinglish.
+- **Greeting and length**: a first message that is only a hello ("Hi", "hii",
+  "namaste") is answered with a fixed short greeting — `Hi! Kya chahiye aapko? 😊`
+  (Devanagari hello gets `Hi! क्या चाहिए आपको? 😊`) — with no provider call, so it
+  never drifts and never costs a request. The word "Namaste" is deliberately not
+  used. Every other reply is asked to stay within 1-10 words with exactly one
+  emoji, and `ensureTrailingEmoji` moves a mid-sentence emoji to the very end,
+  because models like to drop it in the middle.
 - **Order vs chat**: only a message that names catalog items creates an order.
   Small talk is still stored and answered, but never becomes a ₹0 order. The
   inbound `wa_message_id` is claimed in `messages` first, so a Meta retry

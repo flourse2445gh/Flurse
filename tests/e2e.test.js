@@ -681,6 +681,105 @@ test('AI replies are drafted by the provider and mirror the customer language', 
   }
 });
 
+test('a first hello gets the short greeting, in the customer language', async () => {
+  const { draftReply, isGreeting } = await import('../lib/ai.js');
+
+  assert.ok(isGreeting('Hi'), 'a bare hi is a greeting');
+  assert.ok(isGreeting('Namaste ji!'), 'a Hindi hello is a greeting');
+  assert.ok(!isGreeting('Hi, do you have red roses?'), 'a hi with an item is not a greeting');
+
+  const tenant = { business_name: 'Test Cafe' };
+  const products = [{ id: 'p1', name: 'Red Rose', price_cents: 5000, active: true }];
+
+  // A Roman-script hello ("Hi", "hello") is answered in Hinglish, matching how
+  // Indian shops actually reply; Devanagari gets Hindi.
+  const hinglish = await draftReply({
+    tenant, products, messageText: 'Hi', items: [], history: [{ direction: 'inbound', body: 'Hi' }],
+  });
+  assert.equal(hinglish.source, 'greeting');
+  assert.match(hinglish.reply, /Kya chahiye aapko\?/);
+  assert.match(hinglish.reply, /😊$/u, 'the greeting ends with the emoji');
+
+  const hindi = await draftReply({
+    tenant, products, messageText: 'नमस्ते', items: [], history: [{ direction: 'inbound', body: 'नमस्ते' }],
+  });
+  assert.equal(hindi.reply, 'Hi! क्या चाहिए आपको? 😊');
+  assert.ok(!/नमस्ते/.test(hindi.reply), 'the greeting must never say Namaste');
+
+  // A greeting in the middle of a conversation is answered normally, not reset.
+  const later = await draftReply({
+    tenant, products, messageText: 'hi', items: [],
+    history: [
+      { direction: 'inbound', body: 'hi' },
+      { direction: 'outbound', body: 'Hi! 😊 What would you like?' },
+      { direction: 'inbound', body: 'hi' },
+    ],
+  });
+  assert.notEqual(later.source, 'greeting');
+});
+
+test('a greeting is answered without calling any provider', async () => {
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = 'http://127.0.0.1:1';
+  process.env.GROQ_API_KEY = 'unreachable-key';
+  try {
+    const { draftReply } = await import('../lib/ai.js');
+    const out = await draftReply({
+      tenant: { business_name: 'Test Cafe' },
+      products: [],
+      messageText: 'namaste',
+      items: [],
+      history: [{ direction: 'inbound', body: 'namaste' }],
+    });
+    assert.equal(out.source, 'greeting');
+    assert.deepEqual(out.errors, [], 'no provider should have been tried');
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('a mid-sentence emoji is moved to the end of the reply', async () => {
+  const { ensureTrailingEmoji } = await import('../lib/ai.js');
+
+  assert.equal(
+    ensureTrailingEmoji('Hi! 😊 Kya chahiye aapko?'),
+    'Hi! Kya chahiye aapko? 😊',
+    'an emoji in the middle is pulled to the very end',
+  );
+  assert.equal(ensureTrailingEmoji('Total ₹500 🌸'), 'Total ₹500 🌸', 'an emoji already at the end stays');
+  assert.equal(ensureTrailingEmoji('Kaunsa phool chahiye?'), 'Kaunsa phool chahiye?', 'no emoji, no change');
+  assert.equal(ensureTrailingEmoji('🌸'), '🌸', 'an emoji-only reply is left alone');
+});
+
+test('every reply stays within 1-10 words and carries one emoji', async () => {
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const fakeUrl = `http://127.0.0.1:${fake.server.address().port}/v1`;
+
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = fakeUrl;
+  process.env.GROQ_API_KEY = 'test-groq-key';
+  try {
+    const { draftReply } = await import('../lib/ai.js');
+    const tenant = { business_name: 'Test Cafe', shop_tone: 'warm and short' };
+    const products = [{ id: 'p1', name: 'Red Rose', price_cents: 5000, active: true }];
+
+    const out = await draftReply({
+      tenant, products, messageText: 'bhai gulab hai kya?', items: [], history: [],
+    });
+
+    // The instruction itself must be in the prompt, or the model never hears it.
+    const system = fake.seen[0].messages[0].content;
+    assert.match(system, /1 and 10 words/);
+    assert.match(system, /emoji/);
+
+    assert.ok(out.reply.length > 0);
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
 test('a provider that fails is skipped and the next one answers', async () => {
   const dead = createServer((req, res) => { res.statusCode = 429; res.end('quota'); });
   const good = startFakeProvider();
