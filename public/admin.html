@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BudsBox — Operator panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/app.css">
+<style>
+  .shop-card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-card); }
+  .shop-card .av { width: 44px; height: 44px; border-radius: 16px; background: var(--brand-soft); color: var(--brand-dark); display: grid; place-items: center; font-size: 20px; flex-shrink: 0; }
+  .mini { background: var(--cream); border-radius: 12px; padding: 10px 12px; }
+  .mini .k { font-size: 9.5px; font-weight: 800; letter-spacing: .06em; color: var(--ink-30); text-transform: uppercase; }
+  .mini .v { font-size: 14px; font-weight: 800; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<!-- GATE -->
+<section id="gate" class="wrap-sm" style="padding:56px 20px">
+  <div class="center">
+    <a class="logo" href="/" style="justify-content:center;text-decoration:none">
+      <span class="mark">🌸</span><span>BudsBox<small>Operator</small></span>
+    </a>
+  </div>
+  <div class="card anim-up" style="margin-top:24px">
+    <div style="width:52px;height:52px;border-radius:18px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:24px">🔐</div>
+    <h2 style="font-size:20px;margin:14px 0 4px">Operator login</h2>
+    <p class="muted" style="margin:0 0 18px">Cross-tenant view. Apna operator secret (<code>ADMIN_SECRET</code>) daalo — sirf is tab me rehta hai.</p>
+    <form id="gateForm" class="stack">
+      <div class="field"><label for="secret">Operator secret</label><input id="secret" type="password" required autocomplete="off" placeholder="••••••••"></div>
+      <div class="error" id="gateError"></div>
+      <button class="btn block" type="submit">Open panel →</button>
+    </form>
+  </div>
+</section>
+
+<!-- PANEL -->
+<div id="panel" class="hidden">
+  <div class="topbar">
+    <div class="inner">
+      <div class="logo"><span class="mark" style="background:var(--ink)">🌸</span><span>BudsBox Admin<small>Multi-tenant control</small></span></div>
+      <div class="row">
+        <button id="exportBtn" class="btn ghost sm">⬇ Export CSV</button>
+        <button id="refreshBtn" class="btn ghost sm">↻ Refresh</button>
+        <button id="signoutBtn" class="btn ghost sm">Sign out</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap" style="padding:20px">
+    <div class="grid-4" style="margin-bottom:18px">
+      <div class="stat"><div class="label">Total shops</div><div class="value" id="tTotal">—</div></div>
+      <div class="stat"><div class="label">Trialing</div><div class="value" id="tTrial">—</div></div>
+      <div class="stat"><div class="label">Active</div><div class="value" id="tActive">—</div></div>
+      <div class="stat"><div class="label">Suspended</div><div class="value" id="tSusp">—</div></div>
+      <div class="stat"><div class="label">Orders</div><div class="value" id="tOrders">—</div></div>
+      <div class="stat"><div class="label">GMV</div><div class="value" id="tGmv">—</div></div>
+    </div>
+
+    <div class="row-between" style="margin-bottom:12px">
+      <h2 style="font-size:18px;margin:0">All shops</h2>
+      <span class="muted">Auto-disconnect: trial cron (daily 03:00 IST)</span>
+    </div>
+    <div id="shopGrid" class="grid-2"></div>
+  </div>
+</div>
+
+<script src="/assets/app.js"></script>
+<script>
+let secret = sessionStorage.getItem('bb_admin_secret') || '';
+
+async function load() {
+  // Always ask for the data first. With ADMIN_SECRET unset the API answers
+  // without a token, so the panel opens straight away; when a secret is set
+  // the 401 sends us to the gate.
+  const headers = secret ? { Authorization: `Bearer ${secret}` } : {};
+  try {
+    const [statsRes, tenantsRes] = await Promise.all([
+      fetch('/api/admin?view=stats', { headers }),
+      fetch('/api/admin?view=tenants', { headers }),
+    ]);
+    if (statsRes.status === 401 || tenantsRes.status === 401) {
+      sessionStorage.removeItem('bb_admin_secret'); secret = '';
+      $('gateError').textContent = 'Secret galat hai.';
+      return showGate();
+    }
+    renderStats(await statsRes.json());
+    renderShops((await tenantsRes.json()).tenants);
+    $('gate').classList.add('hidden');
+    $('panel').classList.remove('hidden');
+  } catch (err) { $('gateError').textContent = err.message; }
+}
+
+function showGate() {
+  $('gate').classList.remove('hidden');
+  $('panel').classList.add('hidden');
+}
+
+function renderStats(s) {
+  $('tTotal').textContent = s.tenants.total;
+  $('tTrial').textContent = s.tenants.trialing;
+  $('tActive').textContent = s.tenants.active;
+  $('tSusp').textContent = s.tenants.suspended;
+  $('tOrders').textContent = s.orders.orders;
+  $('tGmv').textContent = rupees(s.orders.revenue_cents);
+}
+
+function renderShops(shops) {
+  const grid = $('shopGrid');
+  if (!shops.length) { grid.innerHTML = '<div class="card empty">Abhi koi shop nahi.</div>'; return; }
+  grid.innerHTML = shops.map((t) => {
+    const trial = trialLeft(t.trial_ends_at);
+    const locked = t.status === 'suspended' || t.status === 'cancelled';
+    const nextAction = locked ? 'activate' : 'suspend';
+    return `<div class="shop-card anim-up">
+      <div class="row-between" style="align-items:flex-start">
+        <div class="row">
+          <div class="av">🌸</div>
+          <div class="grow">
+            <b style="font-size:14.5px">${escapeHtml(t.business_name)}</b>
+            <div class="muted truncate" style="font-size:11.5px">${escapeHtml(t.owner_email)}</div>
+            <div class="muted" style="font-size:11px">/${escapeHtml(t.slug)}</div>
+          </div>
+        </div>
+        <span class="pill ${t.status}"><span class="dot"></span>${t.status}</span>
+      </div>
+
+      <div class="row" style="gap:10px;margin-top:14px">
+        <div class="mini grow"><div class="k">Trial</div>
+          <div class="v" style="color:${trial.over ? 'var(--red)' : trial.urgent ? 'var(--amber)' : 'var(--ink)'}">
+            ${t.status === 'trialing' ? (trial.over ? 'Expired' : trial.text + ' left') : '—'}
+          </div>
+        </div>
+        <div class="mini grow"><div class="k">Orders</div><div class="v">${t.order_count}</div></div>
+        <div class="mini grow"><div class="k">WhatsApp</div>
+          <div class="v" style="color:${t.connected ? '#14924a' : 'var(--ink-45)'}">${t.connected ? '● Live' : '— off'}</div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px;gap:8px">
+        <button class="btn ${locked ? 'wa' : 'ghost'} sm grow" data-action="${nextAction}" data-slug="${t.slug}">
+          ${locked ? 'Activate' : 'Suspend'}
+        </button>
+        <button class="btn ghost sm" data-action="disconnect" data-slug="${t.slug}" ${t.connected ? '' : 'disabled'}>Disconnect</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+$('shopGrid').onclick = async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const label = btn.dataset.action;
+  if (!confirm(`${label} — ${btn.dataset.slug}?`)) return;
+  btn.disabled = true;
+  try {
+    await api(`/api/admin?action=${btn.dataset.action}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: btn.dataset.slug }),
+    });
+    toast(`Shop ${label} ho gaya`);
+    await load();
+  } catch (err) { toast(err.message); btn.disabled = false; }
+};
+
+$('exportBtn').onclick = async () => {
+  const res = await fetch('/api/admin?view=export', { headers: { Authorization: `Bearer ${secret}` } });
+  if (!res.ok) return toast('Export fail ho gaya');
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `budsbox-shops-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('CSV download ho gaya ⬇');
+};
+
+$('gateForm').onsubmit = (e) => {
+  e.preventDefault();
+  secret = $('secret').value.trim();
+  sessionStorage.setItem('bb_admin_secret', secret);
+  $('gateError').textContent = '';
+  load();
+};
+
+$('signoutBtn').onclick = () => { sessionStorage.removeItem('bb_admin_secret'); secret = ''; showGate(); };
+$('refreshBtn').onclick = () => load();
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BudsBox — Aapki shop ka 24×7 AI salesman, WhatsApp par</title>
+<meta name="description" content="Customer WhatsApp par message karega, BudsBox ka AI usko order me badal dega — aapke catalog se price match karke. Dashboard, chat inbox, order tracking. 3 din free trial.">
+
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  /* Tailwind theme config - BudsBox brand colors */
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand:     '#FF6B9D',   // Flower Pink
+          brandDark: '#e8558a',
+          wa:        '#25D366',   // WhatsApp Green
+          cream:     '#FEF7F0',   // Cream background
+          ink:       '#2B2118'
+        },
+        fontFamily: {
+          sans: ['Inter', 'system-ui', 'sans-serif']
+        },
+        boxShadow: {
+          soft: '0 10px 40px -12px rgba(255,107,157,0.35)',
+          card: '0 4px 24px -6px rgba(43,33,24,0.10)'
+        },
+        keyframes: {
+          fadeUp: { '0%': { opacity: 0, transform: 'translateY(14px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } },
+          pop:    { '0%': { transform: 'scale(.85)', opacity: 0 }, '70%': { transform: 'scale(1.05)' }, '100%': { transform: 'scale(1)', opacity: 1 } },
+          floaty: { '0%,100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-12px)' } },
+          ring:   { '0%': { boxShadow: '0 0 0 0 rgba(37,211,102,.5)' }, '100%': { boxShadow: '0 0 0 18px rgba(37,211,102,0)' } }
+        },
+        animation: {
+          fadeUp: 'fadeUp .5s ease-out both',
+          pop:    'pop .35s ease-out both',
+          floaty: 'floaty 6s ease-in-out infinite',
+          ring:   'ring 1.6s ease-out infinite'
+        }
+      }
+    }
+  }
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  html { scroll-behavior: smooth; }
+  body { font-family: 'Inter', system-ui, sans-serif; }
+  /* Custom scrollbar - chat area ke liye */
+  .thin-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+  .thin-scroll::-webkit-scrollbar-thumb { background: #e5ded7; border-radius: 99px; }
+  .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+  /* WhatsApp chat bubble tail */
+  .bubble-in  { border-radius: 12px 12px 12px 2px; }
+  .bubble-out { border-radius: 12px 12px 2px 12px; }
+
+  /* Reveal on scroll */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  /* FAQ accordion */
+  details.faq summary { cursor: pointer; list-style: none; }
+  details.faq summary::-webkit-details-marker { display: none; }
+  details.faq[open] .chev { transform: rotate(180deg); }
+  .chev { transition: transform .2s ease; }
+</style>
+</head>
+
+<body class="bg-cream text-ink antialiased">
+
+<main>
+
+  <!-- ============================================================
+       HERO
+       ============================================================ -->
+  <div class="relative overflow-hidden">
+    <div class="absolute -top-32 -right-24 w-[520px] h-[520px] bg-brand/20 rounded-full blur-3xl animate-floaty"></div>
+    <div class="absolute top-40 -left-32 w-[420px] h-[420px] bg-wa/15 rounded-full blur-3xl"></div>
+
+    <div class="relative max-w-6xl mx-auto px-5 pt-16 pb-20 sm:pt-24 text-center">
+      <span class="inline-flex items-center gap-2 bg-white border border-brand/20 text-brand text-[11px] font-bold px-3.5 py-1.5 rounded-full shadow-card">
+        <span class="w-1.5 h-1.5 rounded-full bg-wa animate-pulse"></span>
+        3 Din FREE Trial · No Credit Card
+      </span>
+
+      <h1 class="mt-6 text-4xl sm:text-6xl font-extrabold tracking-tight leading-[1.08]">
+        Aapki Shop ka<br class="hidden sm:block" />
+        <span class="bg-gradient-to-r from-brand via-brandDark to-wa bg-clip-text text-transparent">24×7 AI Order-Taker</span>
+        <br class="hidden sm:block" /> WhatsApp par 🌸
+      </h1>
+
+      <p class="mt-5 max-w-xl mx-auto text-[15px] sm:text-lg text-ink/60 leading-relaxed">
+        Customer WhatsApp par apni baat mein order likhega — BudsBox usko aapke catalog se match karke
+        order bana dega, total ke saath confirmation bhejega, aur sab dashboard me dikha dega. 🚀
+      </p>
+
+      <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
+        <a href="/app?start=1"
+                class="group bg-wa hover:bg-[#1fbe5b] text-white font-bold px-7 py-4 rounded-2xl shadow-soft transition active:scale-95 flex items-center justify-center gap-2">
+          <span class="text-lg">📱</span> Free Trial Shuru Karo
+        </a>
+        <a href="#how"
+                class="inline-block bg-white hover:bg-white/70 border border-ink/10 text-ink font-bold px-7 py-4 rounded-2xl shadow-card transition active:scale-95">
+          Kaise kaam karta hai →
+        </a>
+      </div>
+
+      <p class="mt-4 text-[12px] text-ink/40">Setup 2 minute · Koi app download nahi · Meta ki official Cloud API</p>
+
+      <!-- Phone mockup -->
+      <div class="mt-14 max-w-[300px] mx-auto animate-fadeUp">
+        <div class="bg-ink rounded-[2.4rem] p-2.5 shadow-2xl">
+          <div class="bg-[#e5ddd5] rounded-[1.9rem] overflow-hidden">
+            <div class="bg-wa text-white px-3 py-2.5 flex items-center gap-2">
+              <div class="w-7 h-7 rounded-full bg-white/25 grid place-items-center text-xs">🌸</div>
+              <div class="leading-tight">
+                <p class="text-[11px] font-bold">BudsBox Flowers</p>
+                <p class="text-[9px] text-white/80">AI Agent · online</p>
+              </div>
+            </div>
+            <div class="p-3 space-y-2 h-[290px] thin-scroll overflow-hidden text-[11px]">
+              <div class="bg-white bubble-in px-2.5 py-1.5 max-w-[85%] shadow-sm">Hi, 1 Red Rose Premium aur 2 Mixed Pastel chahiye</div>
+              <div class="bg-[#dcf8c6] bubble-out px-2.5 py-1.5 max-w-[88%] ml-auto shadow-sm">
+                Got it! Here's your order:<br />
+                • 1 × Red Rose Premium — ₹1499.00<br />
+                • 2 × Mixed Pastel — ₹2798.00<br />
+                <b>Total: ₹4297.00</b>
+              </div>
+              <div class="bg-white bubble-in px-2.5 py-1.5 max-w-[85%] shadow-sm">Perfect 👍</div>
+              <div class="bg-[#dcf8c6] bubble-out px-2.5 py-1.5 max-w-[85%] ml-auto shadow-sm">
+                Order dashboard me aa gaya ✅ Shop aapko confirm karegi.
+              </div>
+              <div class="text-center text-[9px] text-ink/40 pt-1">AI typing…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       TRUST / STAT BAND
+       ============================================================ -->
+  <div class="border-y border-ink/5 bg-white/60">
+    <div class="max-w-6xl mx-auto px-5 py-8 grid grid-cols-2 sm:grid-cols-4 gap-6 text-center">
+      <div class="reveal">
+        <p class="text-3xl font-extrabold text-brand">24×7</p>
+        <p class="mt-1 text-[12px] text-ink/50">Har message ka reply</p>
+      </div>
+      <div class="reveal">
+        <p class="text-3xl font-extrabold text-wa">0</p>
+        <p class="mt-1 text-[12px] text-ink/50">Missed orders</p>
+      </div>
+      <div class="reveal">
+        <p class="text-3xl font-extrabold text-ink">₹599</p>
+        <p class="mt-1 text-[12px] text-ink/50">Per month, flat</p>
+      </div>
+      <div class="reveal">
+        <p class="text-3xl font-extrabold text-brandDark">3 din</p>
+        <p class="mt-1 text-[12px] text-ink/50">Free trial</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       FEATURES
+       ============================================================ -->
+  <div class="max-w-6xl mx-auto px-5 py-16">
+    <div class="text-center reveal">
+      <h2 class="text-3xl sm:text-4xl font-extrabold">Jo actually <span class="text-brand">kaam karta hai</span></h2>
+      <p class="mt-3 text-ink/55 max-w-lg mx-auto text-[15px]">Har feature live hai — koi demo ya mock nahi. Login karo aur turant use karo.</p>
+    </div>
+
+    <div class="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+      <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
+        <div class="w-12 h-12 rounded-2xl bg-brand/10 grid place-items-center text-2xl">🤖</div>
+        <h3 class="mt-4 font-bold text-lg">AI Order Parsing</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Customer normal baat mein likhe — "2 red rose aur ek pastel bouquet". AI usko aapke catalog se match karke order lines bana deta hai.</p>
+      </div>
+      <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
+        <div class="w-12 h-12 rounded-2xl bg-wa/10 grid place-items-center text-2xl">✅</div>
+        <h3 class="mt-4 font-bold text-lg">Auto Confirmation Reply</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Order bante hi customer ko line-by-line items aur ₹ total wala confirmation reply chala jata hai — aapka haath lagaye bina.</p>
+      </div>
+      <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
+        <div class="w-12 h-12 rounded-2xl bg-sky-100 grid place-items-center text-2xl">💬</div>
+        <h3 class="mt-4 font-bold text-lg">WhatsApp-style Inbox</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Har customer ka thread, poori history. Kabhi khud reply karna ho to inbox se type karo — connected number se chala jayega.</p>
+      </div>
+      <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
+        <div class="w-12 h-12 rounded-2xl bg-amber-100 grid place-items-center text-2xl">📋</div>
+        <h3 class="mt-4 font-bold text-lg">Catalog Manager</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Apne items aur ₹ price daalo. AI inhi se match karta hai aur total nikalta hai — price hamesha aapke control me.</p>
+      </div>
+      <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
+        <div class="w-12 h-12 rounded-2xl bg-violet-100 grid place-items-center text-2xl">📊</div>
+        <h3 class="mt-4 font-bold text-lg">Booking Dashboard</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Orders, revenue, customers, pending — sab ek jagah. Order status Pending → Confirmed → Fulfilled track karo.</p>
+      </div>
+      <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
+        <div class="w-12 h-12 rounded-2xl bg-emerald-100 grid place-items-center text-2xl">🔒</div>
+        <h3 class="mt-4 font-bold text-lg">Multi-Tenant &amp; Safe</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Har shop ka data alag — koi dusri shop aapka order ya customer nahi dekh sakti. Meta ki official Cloud API, koi ban risk nahi.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       DEEP DIVE — dashboard aapki site par
+       ============================================================ -->
+  <div class="bg-white/60 border-y border-ink/5">
+    <div class="max-w-6xl mx-auto px-5 py-16 grid lg:grid-cols-2 gap-10 items-center">
+      <div class="reveal">
+        <span class="inline-flex items-center gap-2 bg-brand/10 text-brand text-[11px] font-bold px-3 py-1.5 rounded-full">Aapki site par</span>
+        <h2 class="mt-4 text-3xl sm:text-4xl font-extrabold leading-tight">Poora control ek dashboard me</h2>
+        <p class="mt-3 text-ink/55 text-[15px] leading-relaxed">
+          Kuch bhi naya seekhna nahi hai. Login karo — orders, chats, catalog aur WhatsApp connection,
+          sab aapke apne BudsBox dashboard par.
+        </p>
+        <ul class="mt-6 space-y-3 text-[14px]">
+          <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>Orders ek table me — items, ₹ total, status</span></li>
+          <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>Customer inbox — search karo, thread kholo, reply bhejo</span></li>
+          <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>Catalog edit — item add karo, price badlo, delete karo</span></li>
+          <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>WhatsApp connect / <b>disconnect</b> — ek click me</span></li>
+        </ul>
+        <a href="/app?start=1" class="mt-7 inline-block bg-ink hover:bg-ink/90 text-white font-bold px-6 py-3.5 rounded-2xl transition active:scale-95">Dashboard kholo →</a>
+      </div>
+
+      <!-- mini dashboard preview -->
+      <div class="reveal">
+        <div class="bg-white rounded-3xl p-4 shadow-soft border border-ink/5">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-2xl bg-cream p-4">
+              <p class="text-[10px] font-extrabold tracking-wider text-ink/30">ORDERS</p>
+              <p class="text-2xl font-extrabold mt-1">128</p>
+            </div>
+            <div class="rounded-2xl bg-cream p-4">
+              <p class="text-[10px] font-extrabold tracking-wider text-ink/30">REVENUE</p>
+              <p class="text-2xl font-extrabold mt-1 text-brand">₹2.4L</p>
+            </div>
+            <div class="rounded-2xl bg-cream p-4">
+              <p class="text-[10px] font-extrabold tracking-wider text-ink/30">CUSTOMERS</p>
+              <p class="text-2xl font-extrabold mt-1">96</p>
+            </div>
+            <div class="rounded-2xl bg-cream p-4">
+              <p class="text-[10px] font-extrabold tracking-wider text-ink/30">PENDING</p>
+              <p class="text-2xl font-extrabold mt-1 text-amber-500">7</p>
+            </div>
+          </div>
+          <div class="mt-3 rounded-2xl border border-ink/5 overflow-hidden">
+            <div class="px-4 py-2.5 bg-cream text-[10px] font-extrabold tracking-wider text-ink/30 flex justify-between"><span>CUSTOMER</span><span>TOTAL</span></div>
+            <div class="px-4 py-3 flex items-center justify-between border-t border-ink/5 text-[12.5px]">
+              <span>Priya Verma</span><span class="font-bold">₹4,297</span>
+            </div>
+            <div class="px-4 py-3 flex items-center justify-between border-t border-ink/5 text-[12.5px]">
+              <span>Rahul S.</span><span class="font-bold">₹1,499</span>
+            </div>
+            <div class="px-4 py-3 flex items-center justify-between border-t border-ink/5 text-[12.5px]">
+              <span>Anita K.</span><span class="font-bold">₹2,798</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       HOW IT WORKS
+       ============================================================ -->
+  <div id="how" class="max-w-6xl mx-auto px-5 py-16">
+    <div class="text-center reveal">
+      <h2 class="text-3xl sm:text-4xl font-extrabold">Sirf <span class="text-wa">3 steps</span></h2>
+      <p class="mt-3 text-ink/55 text-[15px]">Live hone me 5 minute lagta hai. Seriously.</p>
+    </div>
+    <div class="mt-10 grid sm:grid-cols-3 gap-5">
+      <div class="relative bg-white rounded-3xl p-7 border border-ink/5 shadow-card reveal">
+        <span class="absolute -top-3 left-7 bg-brand text-white text-[11px] font-bold px-3 py-1 rounded-full">STEP 1</span>
+        <div class="text-3xl mt-2">🌸</div>
+        <h3 class="mt-3 font-bold">Shop banao</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55">Business name, email, password — bas. 3 din ka free trial turant shuru.</p>
+      </div>
+      <div class="relative bg-white rounded-3xl p-7 border border-ink/5 shadow-card reveal">
+        <span class="absolute -top-3 left-7 bg-wa text-white text-[11px] font-bold px-3 py-1 rounded-full">STEP 2</span>
+        <div class="text-3xl mt-2">📋</div>
+        <h3 class="mt-3 font-bold">Catalog daalo</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55">Apne items aur ₹ price add karo. AI inhi se order match karega.</p>
+      </div>
+      <div class="relative bg-white rounded-3xl p-7 border border-ink/5 shadow-card reveal">
+        <span class="absolute -top-3 left-7 bg-ink text-white text-[11px] font-bold px-3 py-1 rounded-full">STEP 3</span>
+        <div class="text-3xl mt-2">🔗</div>
+        <h3 class="mt-3 font-bold">WhatsApp jodo</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55">Meta ka Phone number ID + token dashboard me paste karo. Bas — AI live. Kabhi bhi disconnect kar sakte ho.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       PRICING
+       ============================================================ -->
+  <div class="bg-white/60 border-y border-ink/5">
+    <div class="max-w-6xl mx-auto px-5 py-16">
+      <div class="text-center reveal">
+        <h2 class="text-3xl sm:text-4xl font-extrabold">Simple <span class="text-brand">pricing</span></h2>
+        <p class="mt-3 text-ink/55 text-[15px]">Pehle 3 din free. Pasand aaye to ₹599/month — ek bouquet ke price se bhi kam.</p>
+      </div>
+
+      <div class="mt-10 grid sm:grid-cols-2 gap-5 max-w-3xl mx-auto">
+        <!-- Trial -->
+        <div class="bg-white rounded-3xl p-7 border-2 border-ink/5 reveal">
+          <p class="text-[11px] font-bold text-ink/40 tracking-wider">FREE TRIAL</p>
+          <p class="mt-2 text-4xl font-extrabold">₹0</p>
+          <p class="text-[13px] text-ink/50">3 din ke liye</p>
+          <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65">
+            <li class="flex gap-2"><span class="text-wa">✓</span> AI order parsing + auto reply</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Catalog + chat inbox</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Booking dashboard</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> No card needed</li>
+          </ul>
+          <a href="/app?start=1" class="mt-6 w-full block text-center bg-ink/5 hover:bg-ink/10 font-bold py-3 rounded-xl transition">Start Free Trial</a>
+        </div>
+
+        <!-- Pro -->
+        <div class="relative bg-ink text-white rounded-3xl p-7 shadow-soft overflow-hidden reveal">
+          <div class="absolute -top-16 -right-16 w-48 h-48 bg-brand/30 rounded-full blur-2xl"></div>
+          <div class="relative">
+            <div class="flex items-center justify-between">
+              <p class="text-[11px] font-bold text-brand tracking-wider">PRO MONTHLY</p>
+              <span class="bg-wa text-white text-[10px] font-bold px-2.5 py-1 rounded-full">POPULAR</span>
+            </div>
+            <p class="mt-2 text-4xl font-extrabold">₹599<span class="text-base font-medium text-white/40">/mo</span></p>
+            <p class="text-[13px] text-white/50">Har 30 din me renew</p>
+            <ul class="mt-5 space-y-2.5 text-[13px] text-white/70">
+              <li class="flex gap-2"><span class="text-wa">✓</span> Sab kuch trial wala, unlimited</li>
+              <li class="flex gap-2"><span class="text-wa">✓</span> Unlimited customers + orders</li>
+              <li class="flex gap-2"><span class="text-wa">✓</span> Priority support</li>
+              <li class="flex gap-2"><span class="text-wa">✓</span> 30 din extension per payment</li>
+            </ul>
+            <a href="/app?start=1"
+                    class="mt-6 w-full block text-center bg-brand hover:bg-brandDark font-bold py-3 rounded-xl transition active:scale-95">
+              Pay ₹599 to Continue
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       FAQ
+       ============================================================ -->
+  <div class="max-w-3xl mx-auto px-5 py-16">
+    <div class="text-center reveal">
+      <h2 class="text-3xl sm:text-4xl font-extrabold">Aksar puche <span class="text-brand">sawaal</span></h2>
+      <p class="mt-3 text-ink/55 text-[15px]">Chhote, saaf jawab — bina jargon.</p>
+    </div>
+
+    <div class="mt-8 space-y-3">
+      <details class="faq bg-white rounded-2xl shadow-card border border-ink/5 reveal">
+        <summary class="px-5 py-4 flex items-center justify-between font-bold text-[14.5px]">
+          Mera personal WhatsApp number lagana padega?
+          <span class="chev text-ink/40">▾</span>
+        </summary>
+        <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
+          Behtar hai shop ke liye alag number use karo. Aap apna normal WhatsApp alag rakh sakte ho — BudsBox sirf us
+          number ko use karta hai jo aap Meta Cloud API me jodte ho.
+        </p>
+      </details>
+
+      <details class="faq bg-white rounded-2xl shadow-card border border-ink/5 reveal">
+        <summary class="px-5 py-4 flex items-center justify-between font-bold text-[14.5px]">
+          Connect / disconnect karna mushkil hai?
+          <span class="chev text-ink/40">▾</span>
+        </summary>
+        <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
+          Nahi. Dashboard ke WhatsApp tab me Phone number ID aur token paste karke "Save &amp; connect" dabao.
+          Kabhi band karna ho to wahi "Disconnect" button — ek click, turant AI ruk jata hai.
+        </p>
+      </details>
+
+      <details class="faq bg-white rounded-2xl shadow-card border border-ink/5 reveal">
+        <summary class="px-5 py-4 flex items-center justify-between font-bold text-[14.5px]">
+          AI galat order bana de to?
+          <span class="chev text-ink/40">▾</span>
+        </summary>
+        <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
+          Har order dashboard me dikhta hai — aap Confirm karo ya Cancel. Catalog saaf rakho to matching best chalti hai.
+        </p>
+      </details>
+
+      <details class="faq bg-white rounded-2xl shadow-card border border-ink/5 reveal">
+        <summary class="px-5 py-4 flex items-center justify-between font-bold text-[14.5px]">
+          Trial khatam hone par kya hota hai?
+          <span class="chev text-ink/40">▾</span>
+        </summary>
+        <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
+          3 din baad number auto-disconnect ho jata hai aur orders ruk jate hain — aapka data safe rehta hai.
+          ₹599 pay karte hi 30 din ke liye sab wapas chalu.
+        </p>
+      </details>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       FINAL CTA
+       ============================================================ -->
+  <div class="max-w-6xl mx-auto px-5 pb-20">
+    <div class="relative overflow-hidden rounded-[2rem] bg-ink text-white px-7 py-12 sm:px-12 text-center shadow-soft reveal">
+      <div class="absolute -top-20 -right-16 w-72 h-72 bg-brand/30 rounded-full blur-3xl"></div>
+      <div class="absolute -bottom-24 -left-16 w-72 h-72 bg-wa/20 rounded-full blur-3xl"></div>
+      <div class="relative">
+        <h2 class="text-3xl sm:text-4xl font-extrabold">Aaj se apna AI salesman chalu karo 🌸</h2>
+        <p class="mt-3 text-white/60 text-[15px] max-w-lg mx-auto">3 din free, no card. 2 minute me shop live.</p>
+        <div class="mt-7 flex flex-col sm:flex-row gap-3 justify-center">
+          <a href="/app?start=1" class="bg-wa hover:bg-[#1fbe5b] text-white font-bold px-7 py-4 rounded-2xl transition active:scale-95">📱 Free Trial Shuru Karo</a>
+          <a href="/admin" class="bg-white/10 hover:bg-white/20 border border-white/15 text-white font-bold px-7 py-4 rounded-2xl transition active:scale-95">Operator panel →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       FOOTER
+       ============================================================ -->
+  <footer class="border-t border-ink/5 bg-white/50">
+    <div class="max-w-6xl mx-auto px-5 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-xl bg-brand grid place-items-center text-white">🌸</div>
+        <span class="font-extrabold">BudsBox</span>
+        <span class="text-[11px] text-ink/40">· India</span>
+      </div>
+      <div class="flex items-center gap-5 text-[11px] text-ink/40">
+        <a href="/app" class="hover:text-ink/70">Shop login</a>
+        <a href="/admin" class="hover:text-ink/70">Operator</a>
+        <a href="/api/health" class="hover:text-ink/70">Status</a>
+      </div>
+    </div>
+    <p class="pb-8 text-center text-[11px] text-ink/30">© 2026 BudsBox · Made with 🌸 in India</p>
+  </footer>
+
+</main>
+
+<script>
+  // Reveal-on-scroll so long sections animate in instead of popping.
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+</script>
+
+</body>
+</html>

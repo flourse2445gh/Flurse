@@ -1,0 +1,18 @@
+{
+  "name": "budsbox",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "BudsBox - multi-tenant WhatsApp ordering SaaS with a 3-day trial",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node scripts/dev-server.js",
+    "migrate": "node scripts/migrate.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}
