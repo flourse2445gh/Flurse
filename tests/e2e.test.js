@@ -653,6 +653,16 @@ test('AI replies are drafted by the provider and mirror the customer language', 
     assert.equal(detectLanguage('bhai 10 gulab kitne ka hai?'), 'hinglish');
     assert.equal(detectLanguage('क्या आज डिलीवरी मिलेगी?'), 'hi');
 
+    // The owner's three canonical examples, plus short Hinglish that carries
+    // only one giveaway word, which the two-word rule alone would miss.
+    assert.equal(detectLanguage('Hi i need rose'), 'en');
+    assert.equal(detectLanguage('Hi mujhe rose chahiye'), 'hinglish');
+    assert.equal(detectLanguage('Hi मुझे rose चाहिए'), 'hi');
+    assert.equal(detectLanguage('rose chahiye'), 'hinglish');
+    assert.equal(detectLanguage('aap delivery karte ho?'), 'hinglish');
+    assert.equal(detectLanguage('I need a rose bouquet'), 'en');
+    assert.equal(detectLanguage('Do you deliver outside Jaipur?'), 'en');
+
     const tenant = { business_name: 'Test Cafe', shop_tone: 'warm and short' };
     const products = [{ id: 'p1', name: 'Red Rose', price_cents: 5000, active: true }];
 
