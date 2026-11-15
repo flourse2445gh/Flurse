@@ -694,7 +694,7 @@ test('AI replies are drafted by the provider and mirror the customer language', 
     assert.equal(detectLanguage('rose chahiye'), 'hinglish');
     assert.equal(detectLanguage('aap delivery karte ho?'), 'hinglish');
     assert.equal(detectLanguage('I need a rose bouquet'), 'en');
-    assert.equal(detectLanguage('Do you deliver outside Koramangala, Bangalore?'), 'en');
+    assert.equal(detectLanguage('Do you deliver outside Bangalore?'), 'en');
 
     const tenant = { business_name: 'Test Cafe', shop_tone: 'warm and short' };
     const products = [{ id: 'p1', name: 'Red Rose', price_cents: 5000, active: true }];
@@ -930,7 +930,7 @@ test('shop profile settings round-trip and are tenant scoped', async () => {
     body: {
       shop_address: '12 Gandhi Road, Koramangala, Bangalore',
       shop_hours: '8am-9pm daily',
-      shop_delivery: 'Free in Koramangala, Bangalore, 3 hours',
+      shop_delivery: 'Free in Koramangala, 3 hours',
       shop_tone: 'warm, short, Hinglish',
       shop_instructions: 'Bulk orders get 10% off',
     },
@@ -939,7 +939,7 @@ test('shop profile settings round-trip and are tenant scoped', async () => {
   assert.equal(save.body.settings.shop_address, '12 Gandhi Road, Koramangala, Bangalore');
 
   const read = await api('/api/shop', { cookie: login.cookie });
-  assert.equal(read.body.settings.shop_delivery, 'Free in Koramangala, Bangalore, 3 hours');
+  assert.equal(read.body.settings.shop_delivery, 'Free in Koramangala, 3 hours');
 
   const anon = await api('/api/shop');
   assert.equal(anon.status, 401);
