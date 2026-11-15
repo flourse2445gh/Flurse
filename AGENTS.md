@@ -111,8 +111,11 @@ messages into orders and shows them in a dashboard. 3-day trial, then
 - **Subscription billing via Razorpay.** `lib/razorpay.js` wraps the Orders API
   and both signature checks. `POST /api/payments?action=checkout` opens a
   checkout (records a `payments` row as `created`), `action=verify` settles the
-  browser callback, and `action=webhook` (`payment.captured`, signature-checked
-  with `RAZORPAY_WEBHOOK_SECRET`) settles server-to-server. Both paths call
+  browser callback, and `action=webhook` (`payment.captured`) settles
+  server-to-server, but its body is treated as a hint only: the payment is
+  re-fetched from Razorpay and must be `captured`, belong to the named order,
+  and match the recorded amount before anything activates. No shared webhook
+  secret is kept, so a forged body can never buy a free activation. Both paths call
   `settle()`, which is idempotent on `razorpay_order_id`, so whichever arrives
   first activates the shop once. Activation sets `status='active'`, `plan`, and
   `paid_until` (extended from the later of now or the existing `paid_until`, so
