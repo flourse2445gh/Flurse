@@ -39,7 +39,7 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
   `git push https://flourse2445gh:${GITHUB_TOKEN}@github.com/flourse2445gh/Flurse.git phase-1-backend:phase-1-backend`
 
 ## Test kaise chalate hain
-- `npm test` (node --test). 32 tests hain, sab pass hone chahiye.
+- `npm test` (node --test). 33 tests hain, sab pass hone chahiye.
 - Postgres chahiye. Docker is env me kaam nahi karta. Isliye:
   ```
   sudo apt-get install -y postgresql
@@ -63,7 +63,7 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 - `db/schema.sql`, `vercel.json`, `tests/e2e.test.js`, `scripts/`
 
 ## Jo kaam HO CHUKA hai (dobara mat banao)
-- Multi-tenant backend + 32 passing tests
+- Multi-tenant backend + 33 passing tests
 - Operator panel: saari shops, trial countdown, order count,
   Suspend / Activate / Disconnect / Export CSV
 - Shop dashboard: orders, catalog (rupees), chat inbox, manual reply
@@ -124,10 +124,10 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 
 ## Kaam karne ka tarika
 - Chhote, focused changes. Jo already hai usse mat todna.
-- Badlav ke baad **`npm test` chalao** — sab 22 pass hone chahiye.
+- Badlav ke baad **`npm test` chalao** — sab 33 pass hone chahiye.
 - Phir `vercel --prod` se deploy karo aur live URL par curl/browser se verify karo.
 - Commit message me `Co-authored-by: openhands <openhands@all-hands.dev>` daalo.
-- Push/PR sirf jab user bole. Abhi PR #2 (`phase-1-backend` -> `main`) open hai.
+- Push/PR sirf jab user bole. PR #1, #2, #3 merge ho chuke hain; abhi koi PR open nahi.
 
 =====
 
