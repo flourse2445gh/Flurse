@@ -2,7 +2,7 @@
 
 Multi-tenant WhatsApp ordering SaaS. One platform, many shops. Each shop
 connects its own Meta WhatsApp Cloud API number; BudsBox turns inbound
-messages into orders and shows them in a dashboard. 3-day trial, then
+messages into orders and shows them in a dashboard. 14-day trial, then
 ₹599/month.
 
 ## Layout

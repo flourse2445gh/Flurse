@@ -52,14 +52,14 @@
     </form>
 
     <form id="signupForm" class="stack hidden">
-      <h2 style="font-size:20px;margin:0">3 din free trial 🎉</h2>
+      <h2 style="font-size:20px;margin:0">14 din free trial 🎉</h2>
       <div class="field"><label for="suName">Business name</label><input id="suName" required placeholder="BudsBox Flowers HSR"></div>
       <div class="field"><label for="suEmail">Email</label><input id="suEmail" type="email" required placeholder="owner@shop.com"></div>
       <div class="field"><label for="suPass">Password</label><input id="suPass" type="password" minlength="8" required placeholder="Kam se kam 8 characters"></div>
       <div class="field"><label for="suPhone">WhatsApp number (optional)</label><input id="suPhone" placeholder="+91 98861 22334"></div>
       <div class="error" id="suError"></div>
       <button class="btn wa block" type="submit">Create shop →</button>
-      <p class="muted" style="margin:2px 0 0">No card needed. 3 din full access, uske baad upgrade.</p>
+      <p class="muted" style="margin:2px 0 0">No card needed. 14 din full access, uske baad upgrade.</p>
     </form>
   </div>
 </section>
@@ -332,7 +332,7 @@ $('signupForm').onsubmit = async (e) => {
       business_name: $('suName').value, email: $('suEmail').value,
       password: $('suPass').value, phone: $('suPhone').value || null,
     }) });
-    toast('Shop ban gaya! 3 din ka trial shuru 🎉');
+    toast('Shop ban gaya! 14 din ka trial shuru 🎉');
     await enterApp();
   } catch (err) { $('suError').textContent = err.message; }
 };

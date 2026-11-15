@@ -2,7 +2,7 @@
 
 Multi-tenant WhatsApp ordering SaaS. Each shop connects its own WhatsApp number and
 gets an AI assistant that turns customer messages into structured orders in a
-dashboard. Shops start on a 3-day free trial; when it ends the platform
+dashboard. Shops start on a 14-day free trial; when it ends the platform
 automatically disconnects the number until the shop upgrades.
 
 **Live:** https://budsbox.vercel.app — landing page, shop app at `/app`,
@@ -17,7 +17,7 @@ Vercel marketplace.
 - Per-shop dashboard: orders, revenue, customer counts, status updates
 - Hourly-style cron that expires overdue trials and auto-disconnects those shops
 - Operator panel: all shops, live status, order counts, trial countdown
-- Stubbed plan upgrade that reactivates a suspended shop
+- Plan upgrade via Razorpay checkout that reactivates a suspended shop
 
 ## Logging in
 
@@ -26,11 +26,11 @@ Vercel marketplace.
   var is set the panel is locked. From there you can see every shop, its trial
   countdown and order count, and **Disconnect**, **Suspend** or **Activate**
   any shop.
-  - While `ADMIN_SECRET` is unset the panel is **open** — no login at all.
-    That is fine for setting the platform up, but anyone with the URL can
-    then suspend or disconnect real shops.
-  - To lock it, set `ADMIN_SECRET` in the Vercel env and redeploy. The panel
-    then asks for that secret. No code change is needed either way.
+  - While `ADMIN_SECRET` is unset the panel is **locked** — the admin API
+    answers 401 and only the gate shows, so a forgotten env var can never
+    expose every shop.
+  - Set `ADMIN_SECRET` in the Vercel env and redeploy to open it with that
+    password. No code change is needed either way.
 
 ## Layout
 
@@ -41,7 +41,7 @@ api/                    serverless functions (one file per route)
   webhook.js            Meta webhook: verify (GET) + inbound messages (POST)
   dashboard.js          per-shop orders, summary, status updates
   admin.js              operator view (cross-tenant), bearer-secret gated
-  payments.js           plan list + stubbed upgrade
+  payments.js           plan list + Razorpay checkout / verify
   health.js             liveness + database reachability
   cron/trial.js         trial expiry -> suspend + disconnect
 lib/                    shared code
@@ -83,7 +83,7 @@ tests/e2e.test.js       end-to-end tests against a real Postgres
 | `WHATSAPP_APP_SECRET` | verifies inbound webhook signatures |
 | `WHATSAPP_ACCESS_TOKEN` | sends replies via the Cloud API |
 | `OPENAI_API_KEY` | AI order parsing (falls back to the catalog parser) |
-| `TRIAL_DAYS` | trial length, default `3` |
+| `TRIAL_DAYS` | trial length, default `14` |
 | `CRON_SECRET` | protects the trial cron |
 
 ## Security notes

@@ -97,9 +97,10 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 4. **Payment QR** — owner apna UPI QR upload karta hai; customer "payment kaise
    karu?" likhe to wo QR seedha chala jaata hai, bina AI credit. (Razorpay/PSP
    se automatic capture abhi bhi baaki hai.)
-5. **Asli payment capture (Razorpay/PSP)** — abhi order par `payment_status`
-   (unpaid/paid/refunded) hai aur owner khud "Mark paid" karta hai UPI transfer
-   dekh kar. Automatic capture nahi hai: PSP wire karna baaki hai.
+5. ~~**Asli payment capture (Razorpay/PSP)**~~ **HO GAYA.** Razorpay se real
+   subscription payment (₹599/mo) live hai — checkout + webhook auto-activation.
+   Order-level customer payment (`payment_status`) abhi bhi owner ke haath me
+   hai (UPI QR ke baad "Mark paid").
 6. **Brand naam** — code me BudsBox 25 jagah, OrderBuds 1 jagah. Sab
    **BudsBox** karna hai.
 
