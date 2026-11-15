@@ -73,7 +73,7 @@ before(async () => {
   process.env.WHATSAPP_VERIFY_TOKEN = 'test-verify-token';
   process.env.CRON_SECRET = 'test-cron-secret';
   process.env.ADMIN_SECRET = 'test-admin-secret';
-  process.env.TRIAL_DAYS = '3';
+  process.env.TRIAL_DAYS = '14';
   process.env.OPENAI_API_KEY = ''; // exercise the deterministic parser
   process.env.GEMINI_API_KEY = '';
   process.env.GROQ_API_KEY = '';
@@ -135,7 +135,7 @@ test('health reports ok and reaches the database', async () => {
   assert.equal(body.db, 'ok');
 });
 
-test('onboarding creates a tenant on a 3-day trial and logs the owner in', async () => {
+test('onboarding creates a tenant on a 14-day trial and logs the owner in', async () => {
   const { status, body, cookie } = await api('/api/onboard', {
     method: 'POST',
     body: {
@@ -147,16 +147,16 @@ test('onboarding creates a tenant on a 3-day trial and logs the owner in', async
   });
   assert.equal(status, 201);
   assert.equal(body.tenant.status, 'trialing');
-  assert.equal(body.tenant.daysLeft, 3);
+  assert.equal(body.tenant.daysLeft, 14);
   assert.ok(cookie, 'expected a session cookie');
 
   // The trial length is computed in JS just before the insert, so the stored
-  // span lands a few milliseconds under 3 days. Compare on the rounded day count.
+  // span lands a few milliseconds under 14 days. Compare on the rounded day count.
   const { rows } = await query(
     `SELECT EXTRACT(EPOCH FROM (trial_ends_at - trial_started_at)) / 86400 AS days
        FROM tenants WHERE slug = 'test-cafe'`,
   );
-  assert.equal(Math.round(Number(rows[0].days)), 3);
+  assert.equal(Math.round(Number(rows[0].days)), 14);
 });
 
 test('onboarding rejects a duplicate slug and a weak password', async () => {
@@ -410,7 +410,10 @@ test('upgrading reactivates a suspended tenant', async () => {
 
   const plans = await api('/api/payments', { cookie: login.cookie });
   assert.equal(plans.status, 200);
-  assert.ok(plans.body.plans.some((p) => p.id === 'starter'));
+  // Only one plan is sold, and the landing page advertises exactly this price.
+  // A second plan here would be an advertised-nowhere dead entry again.
+  assert.deepEqual(plans.body.plans.map((p) => p.id), ['starter']);
+  assert.equal(plans.body.plans[0].priceCents, 59900);
 
   const upgrade = await api('/api/payments?action=upgrade', {
     method: 'POST',

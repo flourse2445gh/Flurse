@@ -7,7 +7,6 @@ import {
 
 const PLANS = {
   starter: { name: 'Pro Monthly', priceCents: 59900, currency: 'INR', days: 30 },
-  growth:  { name: 'Multi-Outlet', priceCents: 149900, currency: 'INR', days: 30 },
 };
 
 // Lifts the suspension and extends the paid period by the plan's length,
