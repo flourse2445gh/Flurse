@@ -619,9 +619,9 @@ function startFakeProvider() {
       // may itself mention a language.
       const language = /reply in Hinglish/.test(system) ? 'hinglish'
         : /reply in Hindi in Devanagari/.test(system) ? 'hi' : 'en';
-      const reply = language === 'hi' ? 'जी, गुलाब उपलब्ध है। कितने चाहिए?'
-        : language === 'hinglish' ? 'Haan bhaiya, gulab available hai. Kitne chahiye?'
-          : 'Yes, roses are available. How many would you like?';
+      const reply = language === 'hi' ? 'जी, गुलाब उपलब्ध है।'
+        : language === 'hinglish' ? 'Haan bhaiya, gulab available hai'
+          : 'Yes, roses are available';
 
       res.setHeader('Content-Type', 'application/json');
       res.end(isGemini
@@ -761,7 +761,44 @@ test('a mid-sentence emoji is moved to the end of the reply', async () => {
   assert.equal(ensureTrailingEmoji('🌸'), '🌸', 'an emoji-only reply is left alone');
 });
 
-test('every reply stays within 1-10 words and carries one emoji', async () => {
+test('a reply never carries more words than the customer message', async () => {
+  const { fitReply, wordBudget } = await import('../lib/ai.js');
+
+  assert.equal(wordBudget('Hi i need rose'), 4);
+  assert.equal(wordBudget('rose'), 1);
+  assert.equal(wordBudget('🌹'), 1, 'an emoji-only message still allows one word');
+  assert.equal(wordBudget(''), 1);
+
+  // The emoji does not count as a word, and it always lands at the end.
+  assert.equal(
+    fitReply('We have a lovely Red Rose Bouquet for ₹500 🌹', 4),
+    'We have a lovely 🌹',
+    'a long reply is cut to the customer word count',
+  );
+  assert.equal(
+    fitReply('Haan bhaiya gulab available hai ji 🌹', 3),
+    'Haan bhaiya gulab 🌹',
+    'the emoji stays at the end after trimming',
+  );
+  assert.equal(
+    fitReply('Yes roses are available 🌹', 3),
+    'Yes roses 🌹',
+    'a dangling word like "are" is dropped from the cut',
+  );
+  assert.equal(
+    fitReply('Total ₹500 🌸', 5),
+    'Total ₹500 🌸',
+    'a reply already within budget is untouched',
+  );
+  assert.equal(
+    fitReply('Yes roses are available', 3),
+    'Yes roses',
+    'a reply with no emoji stays free of one',
+  );
+  assert.equal(fitReply('Hi 😊', 1), 'Hi 😊', 'a one-word reply survives a one-word budget');
+});
+
+test('every reply is trimmed to the customer word count', async () => {
   const fake = startFakeProvider();
   await new Promise((r) => fake.server.listen(0, r));
   const fakeUrl = `http://127.0.0.1:${fake.server.address().port}/v1`;
@@ -770,20 +807,25 @@ test('every reply stays within 1-10 words and carries one emoji', async () => {
   process.env.GROQ_BASE_URL = fakeUrl;
   process.env.GROQ_API_KEY = 'test-groq-key';
   try {
-    const { draftReply } = await import('../lib/ai.js');
+    const { draftReply, wordBudget } = await import('../lib/ai.js');
     const tenant = { business_name: 'Test Cafe', shop_tone: 'warm and short' };
     const products = [{ id: 'p1', name: 'Red Rose', price_cents: 5000, active: true }];
 
-    const out = await draftReply({
-      tenant, products, messageText: 'bhai gulab hai kya?', items: [], history: [],
-    });
+    for (const messageText of ['bhai gulab hai kya?', 'Hi, are you open today?', 'gulab']) {
+      const out = await draftReply({
+        tenant, products, messageText, items: [], history: [],
+      });
+      const words = out.reply.replace(/\p{Extended_Pictographic}/gu, '').trim().split(/\s+/);
+      assert.ok(
+        words.length <= wordBudget(messageText),
+        `"${out.reply}" must not exceed ${wordBudget(messageText)} words for "${messageText}"`,
+      );
+    }
 
-    // The instruction itself must be in the prompt, or the model never hears it.
+    // The prompt itself must state the limit, or the model never hears it.
     const system = fake.seen[0].messages[0].content;
-    assert.match(system, /1 and 10 words/);
-    assert.match(system, /emoji/);
-
-    assert.ok(out.reply.length > 0);
+    assert.match(system, /LENGTH RULE/);
+    assert.match(system, /Never use more words than the customer/);
   } finally {
     process.env = saved;
     await new Promise((r) => fake.server.close(r));
