@@ -239,6 +239,14 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at        TIMESTAMPTZ;
 -- on every order.
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_upi_id TEXT;
 
+-- The shop's own payment QR, stored as a data URL so no file host is needed.
+-- The token is what the public image URL uses; without it the QR is not
+-- reachable by guessing ids.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_payment_qr TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_payment_qr_token TEXT;
+CREATE INDEX IF NOT EXISTS tenants_qr_token_idx ON tenants (shop_payment_qr_token)
+  WHERE shop_payment_qr_token IS NOT NULL;
+
 ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check;
 ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check
   CHECK (payment_status IN ('unpaid', 'paid', 'refunded'));
