@@ -1,8 +1,8 @@
 import { query, withTransaction } from '../lib/db.js';
 import { requireSession } from '../lib/auth.js';
-import { handler, readRaw, readJson, json, requireMethod, error, HttpError } from '../lib/http.js';
+import { handler, readRaw, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 import {
-  razorpayConfigured, createRazorpayOrder, verifyCheckoutSignature, verifyWebhookSignature,
+  razorpayConfigured, createRazorpayOrder, verifyCheckoutSignature, fetchPayment,
 } from '../lib/razorpay.js';
 
 const PLANS = {
@@ -47,25 +47,42 @@ async function settle({ razorpayOrderId, razorpayPaymentId }) {
   });
 }
 
+// Confirms a webhook against Razorpay before activating anything. The payment
+// must be captured, must belong to the order the webhook names, and must match
+// the amount we recorded, so a forged body can settle nothing.
+async function settleFromRazorpay({ paymentId, orderId }) {
+  let payment;
+  try {
+    payment = await fetchPayment(paymentId);
+  } catch {
+    return null;
+  }
+  if (!payment || payment.status !== 'captured' || payment.order_id !== orderId) return null;
+
+  const { rows } = await query(
+    'SELECT amount_cents FROM payments WHERE razorpay_order_id = $1',
+    [orderId],
+  );
+  if (!rows.length || Number(payment.amount) !== rows[0].amount_cents) return null;
+
+  return settle({ razorpayOrderId: orderId, razorpayPaymentId: paymentId });
+}
+
 export default handler(async (req, res) => {
   const action = new URL(req.url, 'http://localhost').searchParams.get('action') ?? 'plans';
 
-  // Razorpay calls this with no session, so it is handled before auth and
-  // authenticated by signature instead.
+  // Razorpay calls this with no session. The body is treated as a hint only:
+  // the payment is confirmed at Razorpay, so nothing here can be forged into a
+  // free activation, and no shared secret has to be kept anywhere.
   if (action === 'webhook') {
     if (!requireMethod(req, res, ['POST'])) return;
     const raw = await readRaw(req);
-    if (!verifyWebhookSignature(raw, req.headers['x-razorpay-signature'])) {
-      error(res, 401, 'Invalid signature');
-      return;
-    }
-    const event = JSON.parse(raw.toString('utf8') || '{}');
+    let event = {};
+    try { event = JSON.parse(raw.toString('utf8') || '{}'); } catch { event = {}; }
+
     const entity = event?.payload?.payment?.entity;
-    if (event.event === 'payment.captured' && entity?.order_id) {
-      const settled = await settle({
-        razorpayOrderId: entity.order_id,
-        razorpayPaymentId: entity.id,
-      });
+    if (event.event === 'payment.captured' && entity?.id && entity?.order_id) {
+      const settled = await settleFromRazorpay({ paymentId: entity.id, orderId: entity.order_id });
       console.log(settled ? `Activated ${settled.tenant.slug}` : 'Webhook: nothing to settle');
     }
     json(res, 200, { received: true });

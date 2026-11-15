@@ -1447,7 +1447,7 @@ test('a tampered payment cannot activate a shop, a signed one can', async () => 
   }
 });
 
-test('the webhook activates a shop on payment.captured and rejects a bad signature', async () => {
+test('the webhook activates a shop only when Razorpay confirms the payment', async () => {
   await query(
     "UPDATE tenants SET status = 'suspended', wa_access_token = NULL, paid_until = NULL WHERE slug = 'test-cafe'",
   );
@@ -1457,27 +1457,48 @@ test('the webhook activates a shop on payment.captured and rejects a bad signatu
   );
 
   const saved = { ...process.env };
-  process.env.RAZORPAY_WEBHOOK_SECRET = 'wh-secret';
-  const event = JSON.stringify({
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  const body = JSON.stringify({
     event: 'payment.captured',
     payload: { payment: { entity: { id: 'pay_E2E3', order_id: 'order_E2E3' } } },
   });
 
-  try {
-    const bad = await fetch(`${BASE}/api/payments?action=webhook`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-razorpay-signature': 'nope' },
-      body: event,
-    });
-    assert.equal(bad.status, 401);
-    const untouched = await query("SELECT status FROM tenants WHERE slug = 'test-cafe'");
-    assert.equal(untouched.rows[0].status, 'suspended', 'an unsigned webhook changes nothing');
+  // Razorpay says the payment is captured, for our order and our amount.
+  const capture = { status: 'captured', order_id: 'order_E2E3', amount: 59900 };
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('api.razorpay.com/v1/payments/')) {
+      // Only the payment we actually recorded exists at Razorpay.
+      if (u.includes('pay_FAKE')) {
+        return new Response(JSON.stringify({ error: { description: 'not found' } }), {
+          status: 404, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify(capture), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return realFetch(url, opts);
+  };
 
-    const sig = crypto.createHmac('sha256', 'wh-secret').update(event).digest('hex');
+  try {
+    // A body that names a payment Razorpay does not know settles nothing.
+    const forged = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'payment.captured',
+        payload: { payment: { entity: { id: 'pay_FAKE', order_id: 'order_E2E3' } } },
+      }),
+    });
+    assert.equal(forged.status, 200, 'the webhook still acks');
+    const untouched = await query("SELECT status FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(untouched.rows[0].status, 'suspended', 'an unknown payment changes nothing');
+
+    // A genuine capture, confirmed at Razorpay, activates the shop.
     const good = await fetch(`${BASE}/api/payments?action=webhook`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-razorpay-signature': sig },
-      body: event,
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
     });
     assert.equal(good.status, 200);
 
@@ -1485,7 +1506,29 @@ test('the webhook activates a shop on payment.captured and rejects a bad signatu
     assert.equal(tenant.rows[0].status, 'active');
     assert.equal(tenant.rows[0].plan, 'starter');
     assert.ok(tenant.rows[0].paid_until, 'the paid period is set');
+
+    // A payment that is not captured yet is ignored.
+    await query("UPDATE tenants SET status = 'suspended' WHERE slug = 'test-cafe'");
+    await query("UPDATE payments SET status = 'created', paid_at = NULL WHERE razorpay_order_id = 'order_E2E3'");
+    capture.status = 'authorized';
+    const pending = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
+    });
+    assert.equal(pending.status, 200);
+    const still = await query("SELECT status FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(still.rows[0].status, 'suspended', 'an uncaptured payment activates nothing');
+
+    // A captured payment for a different amount is ignored.
+    capture.status = 'captured';
+    capture.amount = 100;
+    const cheap = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
+    });
+    assert.equal(cheap.status, 200);
+    const after = await query("SELECT status FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(after.rows[0].status, 'suspended', 'a wrong amount activates nothing');
   } finally {
+    globalThis.fetch = realFetch;
     process.env = saved;
   }
 });
