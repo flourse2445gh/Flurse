@@ -32,6 +32,11 @@ messages into orders and shows them in a dashboard. 3-day trial, then
   `.vercel/project.json` id is `prj_7VyDNo8e35coEjEmh6KLksbH9Kmf`,
   team `team_KzNJiOJKwipHpImVp8JH6OSf`). Relinking Git needs a Vercel
   account "Login Connection" first.
+- **Do not use the dashboard "Redeploy" button to ship a change.** It rebuilds
+  whichever deployment you clicked, so redeploying an older one silently rolls
+  the live site back. Deploy from the CLI on a clean checkout of `main`
+  instead, then check `https://budsbox.vercel.app/api/admin` still answers 401
+  when `ADMIN_SECRET` is unset.
 - Production DB is Neon; connection string is in the Vercel env
   (`DATABASE_URL`). Local dev uses the local Postgres in `.env`.
 - The Vercel plan is **Hobby, capped at 12 serverless functions**. `api/` is at
