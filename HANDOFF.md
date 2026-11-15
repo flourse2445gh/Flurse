@@ -15,7 +15,7 @@ nahi banana.
 deploy, conventions aur architecture likha hai. Wahi sach hai.
 
 ## Live setup (abhi yahi chal raha hai)
-- Live URL: `https://flowers-one-puce.vercel.app`
+- Live URL: `https://budsbox.vercel.app`
   - `/` landing, `/app` shop dashboard, `/admin` operator panel, `/api/health`
 - Vercel project: `flowers`, id `prj_7VyDNo8e35coEjEmh6KLksbH9Kmf`,
   team `team_KzNJiOJKwipHpImVp8JH6OSf`
