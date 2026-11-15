@@ -74,6 +74,10 @@ before(async () => {
   process.env.ADMIN_SECRET = 'test-admin-secret';
   process.env.TRIAL_DAYS = '3';
   process.env.OPENAI_API_KEY = ''; // exercise the deterministic parser
+  process.env.GEMINI_API_KEY = '';
+  process.env.GROQ_API_KEY = '';
+  process.env.CEREBRAS_API_KEY = '';
+  process.env.OPENROUTER_API_KEY = '';
 
   const db = await import('../lib/db.js');
   pool = db.getPool();
@@ -93,6 +97,8 @@ before(async () => {
     '/api/conversations': '../api/conversations.js',
     '/api/products': '../api/products.js',
     '/api/whatsapp': '../api/whatsapp.js',
+    '/api/shop': '../api/shop.js',
+    
     '/api/admin': '../api/admin.js',
     '/api/payments': '../api/payments.js',
     '/api/health': '../api/health.js',
@@ -587,4 +593,251 @@ test('logout invalidates the session', async () => {
 
   const after = await api('/api/dashboard', { cookie: login.cookie });
   assert.equal(after.status, 401);
+});
+
+// -- AI replies ------------------------------------------------------------
+
+// A stand-in provider so the reply path is exercised without the network. It
+// answers in OpenAI's shape, or Gemini's when the URL is a Gemini one, and it
+// echoes back the language the prompt asked for.
+function startFakeProvider() {
+  const seen = [];
+  const server = createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      const payload = JSON.parse(raw || '{}');
+      const isGemini = req.url.includes(':generateContent');
+      const messages = isGemini
+        ? [{ content: payload.systemInstruction?.parts?.[0]?.text ?? '' },
+           ...(payload.contents ?? []).map((c) => ({ content: c.parts?.[0]?.text ?? '' }))]
+        : payload.messages ?? [];
+      seen.push({ url: req.url, auth: req.headers.authorization, messages });
+
+      const system = messages[0]?.content ?? '';
+      // Read the language from the instruction line, not from shop_tone, which
+      // may itself mention a language.
+      const language = /reply in Hinglish/.test(system) ? 'hinglish'
+        : /reply in Hindi in Devanagari/.test(system) ? 'hi' : 'en';
+      const reply = language === 'hi' ? 'जी, गुलाब उपलब्ध है। कितने चाहिए?'
+        : language === 'hinglish' ? 'Haan bhaiya, gulab available hai. Kitne chahiye?'
+          : 'Yes, roses are available. How many would you like?';
+
+      res.setHeader('Content-Type', 'application/json');
+      res.end(isGemini
+        ? JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ reply }) }] } }] })
+        : JSON.stringify({ choices: [{ message: { content: JSON.stringify({ reply }) } }] }));
+    });
+  });
+  return { server, seen };
+}
+
+test('AI replies are drafted by the provider and mirror the customer language', async () => {
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const fakeUrl = `http://127.0.0.1:${fake.server.address().port}/v1`;
+
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = fakeUrl;
+  process.env.GROQ_API_KEY = 'test-groq-key';
+  try {
+    const { draftReply, detectLanguage, availableProviders } = await import('../lib/ai.js');
+
+    assert.deepEqual(
+      availableProviders().map((p) => p.name),
+      ['groq'],
+      'only the configured provider should be offered',
+    );
+
+    assert.equal(detectLanguage('Hi, do you have red roses?'), 'en');
+    assert.equal(detectLanguage('bhai 10 gulab kitne ka hai?'), 'hinglish');
+    assert.equal(detectLanguage('क्या आज डिलीवरी मिलेगी?'), 'hi');
+
+    const tenant = { business_name: 'Test Cafe', shop_tone: 'warm and short' };
+    const products = [{ id: 'p1', name: 'Red Rose', price_cents: 5000, active: true }];
+
+    const english = await draftReply({
+      tenant, products, messageText: 'Hi, do you have red roses?', items: [], history: [],
+    });
+    assert.equal(english.source, 'llm:groq');
+    assert.match(english.reply, /roses are available/);
+
+    const hinglish = await draftReply({
+      tenant, products, messageText: 'bhai gulab hai kya?', items: [], history: [],
+    });
+    assert.match(hinglish.reply, /Haan bhaiya/);
+
+    const hindi = await draftReply({
+      tenant, products, messageText: 'क्या गुलाब है?', items: [], history: [],
+    });
+    assert.match(hindi.reply, /गुलाब/);
+
+    // The key travelled in the Authorization header, never in the URL.
+    assert.equal(fake.seen[0].auth, 'Bearer test-groq-key');
+    assert.ok(!fake.seen[0].url.includes('test-groq-key'));
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
+test('a provider that fails is skipped and the next one answers', async () => {
+  const dead = createServer((req, res) => { res.statusCode = 429; res.end('quota'); });
+  const good = startFakeProvider();
+  await new Promise((r) => dead.listen(0, r));
+  await new Promise((r) => good.server.listen(0, r));
+
+  const saved = { ...process.env };
+  process.env.GEMINI_BASE_URL = `http://127.0.0.1:${dead.address().port}`;
+  process.env.GEMINI_API_KEY = 'exhausted-key';
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${good.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'fresh-key';
+  try {
+    const { draftReply } = await import('../lib/ai.js');
+    const out = await draftReply({
+      tenant: { business_name: 'Test Cafe' },
+      products: [],
+      messageText: 'Hi there, are you open today?',
+      items: [],
+      history: [],
+    });
+    assert.equal(out.source, 'llm:groq', 'the healthy provider must take over');
+    assert.ok(good.seen.length, 'the healthy provider must have been called');
+  } finally {
+    process.env = saved;
+    await new Promise((r) => dead.close(r));
+    await new Promise((r) => good.server.close(r));
+  }
+});
+
+test('when every provider is down the shop still answers, without inventing items', async () => {
+  const saved = { ...process.env };
+  process.env.GEMINI_BASE_URL = 'http://127.0.0.1:1';
+  process.env.GEMINI_API_KEY = 'dead-key';
+  try {
+    const { draftReply } = await import('../lib/ai.js');
+    const out = await draftReply({
+      tenant: { business_name: 'Test Cafe' },
+      products: [{ id: 'p1', name: 'Red Rose', price_cents: 5000, active: true }],
+      messageText: 'bhai 5 gulab chahiye',
+      items: [],
+      history: [],
+    });
+    assert.equal(out.source, 'template');
+    assert.equal(out.language, 'hinglish');
+    assert.ok(out.reply.length > 0);
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('shop profile settings round-trip and are tenant scoped', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  const empty = await api('/api/shop', { cookie: login.cookie });
+  assert.equal(empty.status, 200);
+
+  const save = await api('/api/shop', {
+    method: 'POST',
+    cookie: login.cookie,
+    body: {
+      shop_address: '12 Gandhi Road, Jaipur',
+      shop_hours: '8am-9pm daily',
+      shop_delivery: 'Free in Jaipur, 3 hours',
+      shop_tone: 'warm, short, Hinglish',
+      shop_instructions: 'Bulk orders get 10% off',
+    },
+  });
+  assert.equal(save.status, 200);
+  assert.equal(save.body.settings.shop_address, '12 Gandhi Road, Jaipur');
+
+  const read = await api('/api/shop', { cookie: login.cookie });
+  assert.equal(read.body.settings.shop_delivery, 'Free in Jaipur, 3 hours');
+
+  const anon = await api('/api/shop');
+  assert.equal(anon.status, 401);
+
+  const cleared = await api('/api/shop', {
+    method: 'POST',
+    cookie: login.cookie,
+    body: { shop_address: '' },
+  });
+  assert.equal(cleared.body.settings.shop_address, null, 'blank clears the field');
+});
+
+test('the reply preview mirrors the customer language using a live provider', async () => {
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'preview-key';
+  try {
+    const en = await api('/api/shop?preview', {
+      method: 'POST', cookie: login.cookie,
+      body: { message: 'Hi, are you open today?' },
+    });
+    assert.equal(en.status, 200);
+    assert.equal(en.body.source, 'llm:groq');
+    assert.match(en.body.reply, /roses are available/);
+    assert.deepEqual(en.body.providers, ['groq']);
+
+    const hi = await api('/api/shop?preview', {
+      method: 'POST', cookie: login.cookie,
+      body: { message: 'क्या आज खुला है?' },
+    });
+    assert.equal(hi.body.language, 'hi');
+    assert.match(hi.body.reply, /गुलाब/);
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+
+  const anon = await api('/api/shop?preview', { method: 'POST', body: { message: 'hi' } });
+  assert.equal(anon.status, 401);
+});
+
+test('a chat-only message replies without creating an order', async () => {
+  // Earlier tests disconnected the shop's number; wire it back so the webhook
+  // routes this message to the tenant.
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const before = await query(
+    "SELECT COUNT(*)::int AS n FROM orders o JOIN tenants t ON t.id = o.tenant_id WHERE t.slug = 'test-cafe'",
+  );
+
+  const payload = inboundPayload({
+    phoneNumberId: 'PHONE1',
+    from: '15550002222',
+    text: 'Hi, are you open today?',
+    id: 'wamid.CHAT1',
+  });
+  const { raw, sig } = signedWebhook(payload);
+  const res = await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+  assert.equal(res.status, 200);
+
+  const after = await query(
+    "SELECT COUNT(*)::int AS n FROM orders o JOIN tenants t ON t.id = o.tenant_id WHERE t.slug = 'test-cafe'",
+  );
+  assert.equal(after.rows[0].n, before.rows[0].n, 'small talk must not create a ₹0 order');
+
+  const msgs = await query(
+    `SELECT direction FROM messages m JOIN tenants t ON t.id = m.tenant_id
+      WHERE t.slug = 'test-cafe' AND m.wa_message_id = 'wamid.CHAT1'`,
+  );
+  assert.equal(msgs.rows.length, 1, 'the customer message is still stored');
 });

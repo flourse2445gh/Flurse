@@ -98,6 +98,7 @@
         <button class="tab" data-tab="orders">🧾 Orders</button>
         <button class="tab" data-tab="catalog">📋 Catalog</button>
         <button class="tab" data-tab="whatsapp">🔗 WhatsApp</button>
+        <button class="tab" data-tab="settings">🏪 Shop profile</button>
       </div>
       <button id="refreshBtn" class="btn ghost sm">↻ Refresh</button>
     </div>
@@ -204,6 +205,53 @@
         </div>
       </div>
     </section>
+
+    <!-- SHOP PROFILE -->
+    <section id="tab-settings" class="tabpane hidden">
+      <div class="grid-2" style="grid-template-columns:1fr 340px;align-items:start">
+        <div class="card">
+          <h3>Shop profile — AI isi andaaz me baat karega</h3>
+          <p class="muted" style="margin:6px 0 16px">
+            Yahan jo likhoge, AI wahi use karke customer ko reply dega. Jitna
+            saaf likhoge, utna hi asli dukaandaar jaisa lagega.
+          </p>
+          <form id="setForm" class="stack">
+            <div class="field"><label for="setAddress">Shop address</label>
+              <input id="setAddress" placeholder="12 Gandhi Road, Near Bus Stand, Jaipur"></div>
+            <div class="field"><label for="setHours">Open hours</label>
+              <input id="setHours" placeholder="Roz 8am–9pm, Sunday band"></div>
+            <div class="field"><label for="setDelivery">Delivery</label>
+              <input id="setDelivery" placeholder="Jaipur me 3 ghante me free, bahar ₹50"></div>
+            <div class="field"><label for="setTone">Voice / andaaz</label>
+              <input id="setTone" placeholder="Warm, short, 'bhaiya' jaisa, thoda Hinglish"></div>
+            <div class="field"><label for="setInstructions">Extra instructions (optional)</label>
+              <input id="setInstructions" placeholder="Bulk order par 10% off de sakte hain"></div>
+            <div class="row">
+              <button class="btn block" type="submit" id="setSubmit">Save profile</button>
+            </div>
+          </form>
+        </div>
+        <div class="card">
+          <h3>Reply ki bhasha</h3>
+          <p class="muted" style="margin:6px 0 0">
+            AI <b>customer ki bhasha</b> me hi jawab dega — automatically:
+          </p>
+          <div class="stack" style="margin-top:12px">
+            <div class="row" style="gap:8px"><span class="pill active">English</span><span class="muted">→ English reply</span></div>
+            <div class="row" style="gap:8px"><span class="pill active">Hinglish</span><span class="muted">→ Hinglish reply</span></div>
+            <div class="row" style="gap:8px"><span class="pill active">हिंदी</span><span class="muted">→ हिंदी reply</span></div>
+          </div>
+          <div class="divider"></div>
+          <h3 style="font-size:14px">Try a reply</h3>
+          <p class="muted" style="margin:6px 0 10px">Jaise customer likhega, waisa hi yahan likho:</p>
+          <div class="stack">
+            <input id="tryInput" placeholder="bhai 10 gulab kitne ka hai?">
+            <button class="btn" type="button" id="tryBtn">AI reply dekho</button>
+          </div>
+          <div id="tryOut" class="stack" style="margin-top:12px"></div>
+        </div>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -290,7 +338,7 @@ async function enterApp() {
   renderSummary(data.summary);
   state.orders = data.orders;
   renderOrders();
-  await Promise.all([loadConversations(), loadProducts(), loadWhatsApp()]);
+  await Promise.all([loadConversations(), loadProducts(), loadWhatsApp(), loadSettings()]);
 }
 
 function renderTenant(tenant) {
@@ -568,6 +616,54 @@ $('waDisconnect').onclick = async () => {
 
 $('waCopy').onclick = () => { navigator.clipboard.writeText($('waWebhook').value); toast('Webhook URL copy ho gaya'); };
 $('waCopyVerify').onclick = () => { navigator.clipboard.writeText($('waVerify').value); toast('Verify token copy ho gaya'); };
+
+// ---- shop profile --------------------------------------------------------
+async function loadSettings() {
+  const { settings } = await api('/api/shop');
+  $('setAddress').value = settings.shop_address || '';
+  $('setHours').value = settings.shop_hours || '';
+  $('setDelivery').value = settings.shop_delivery || '';
+  $('setTone').value = settings.shop_tone || '';
+  $('setInstructions').value = settings.shop_instructions || '';
+}
+
+$('setForm').onsubmit = async (e) => {
+  e.preventDefault();
+  $('setSubmit').disabled = true;
+  try {
+    await api('/api/shop', { method: 'POST', body: JSON.stringify({
+      shop_address: $('setAddress').value,
+      shop_hours: $('setHours').value,
+      shop_delivery: $('setDelivery').value,
+      shop_tone: $('setTone').value,
+      shop_instructions: $('setInstructions').value,
+    }) });
+    toast('Shop profile save ho gaya ✅');
+  } catch (err) { toast(err.message); }
+  finally { $('setSubmit').disabled = false; }
+};
+
+$('tryBtn').onclick = async () => {
+  const text = $('tryInput').value.trim();
+  if (!text) return;
+  const btn = $('tryBtn');
+  btn.disabled = true;
+  $('tryOut').innerHTML = '<p class="muted">AI soch raha hai…</p>';
+  try {
+    const out = await api('/api/shop?preview', { method: 'POST', body: JSON.stringify({ message: text }) });
+    const live = out.source.startsWith('llm');
+    $('tryOut').innerHTML = `
+      <div class="card flat" style="background:var(--surface-2);padding:12px 14px">
+        <p style="margin:0;white-space:pre-wrap">${escapeHtml(out.reply)}</p>
+      </div>
+      <p class="muted" style="margin:0;font-size:11px">
+        Bhasha: <b>${escapeHtml(out.language)}</b> ·
+        ${live ? `AI: <b>${escapeHtml(out.source.replace('llm:', ''))}</b>` : 'AI offline — simple reply'}
+        ${out.providers?.length ? ` · providers: ${out.providers.map(escapeHtml).join(', ')}` : ' · koi AI key nahi mili'}
+      </p>`;
+  } catch (err) { $('tryOut').innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`; }
+  finally { btn.disabled = false; }
+};
 
 // ---- payment -------------------------------------------------------------
 function openPay() {

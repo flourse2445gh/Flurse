@@ -62,7 +62,8 @@ export default handler(async (req, res) => {
 
 async function handleMessage(message) {
   const { rows: tenants } = await query(
-    `SELECT id, status, wa_phone_number_id, wa_access_token
+    `SELECT id, status, wa_phone_number_id, wa_access_token, business_name,
+            shop_address, shop_hours, shop_delivery, shop_tone, shop_instructions
        FROM tenants WHERE wa_phone_number_id = $1`,
     [message.phoneNumberId],
   );
@@ -108,8 +109,8 @@ async function handleMessage(message) {
 
   await recordOutboundMessage({
     tenantId: tenant.id,
-    customerId: result.order.customerId,
-    orderId: result.order.id,
+    customerId: result.customerId,
+    orderId: result.order ? result.order.id : null,
     body: result.reply,
   });
 }

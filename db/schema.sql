@@ -22,6 +22,13 @@ CREATE TABLE IF NOT EXISTS tenants (
   wa_phone_number_id TEXT UNIQUE,
   wa_access_token   TEXT,
   wa_verify_token   TEXT,
+  -- Shop profile the AI speaks in. It is what makes a reply sound like the
+  -- shop owner rather than a bot, so it is part of the tenant, not a setting.
+  shop_address      TEXT,
+  shop_hours        TEXT,
+  shop_delivery     TEXT,
+  shop_tone         TEXT,
+  shop_instructions TEXT,
   -- Set when the trial-expiry cron disconnects the tenant
   disconnected_at   TIMESTAMPTZ,
   disconnect_reason TEXT,
@@ -177,6 +184,12 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS messages_tenant_created_idx ON messages (tenant_id, created_at DESC);
 
+-- Inbound messages are claimed by WhatsApp id, so a webhook retry cannot
+-- create a second order or a second reply. Outbound rows carry no id, and
+-- NULLs are distinct in a unique index, so they are unaffected.
+CREATE UNIQUE INDEX IF NOT EXISTS messages_wa_message_uniq
+  ON messages (tenant_id, wa_message_id);
+
 -- ---------------------------------------------------------------------------
 -- keep updated_at fresh
 -- ---------------------------------------------------------------------------
@@ -194,3 +207,13 @@ CREATE TRIGGER tenants_touch BEFORE UPDATE ON tenants
 DROP TRIGGER IF EXISTS orders_touch ON orders;
 CREATE TRIGGER orders_touch BEFORE UPDATE ON orders
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- Additive migrations. CREATE TABLE IF NOT EXISTS above never adds a column to
+-- a table that already exists, so new tenant columns are added here.
+-- ---------------------------------------------------------------------------
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_address      TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_hours        TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_delivery     TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_tone         TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_instructions TEXT;

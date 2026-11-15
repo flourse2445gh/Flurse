@@ -39,7 +39,7 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
   `git push https://flourse2445gh:${GITHUB_TOKEN}@github.com/flourse2445gh/Flurse.git phase-1-backend:phase-1-backend`
 
 ## Test kaise chalate hain
-- `npm test` (node --test). 22 tests hain, sab pass hone chahiye.
+- `npm test` (node --test). 28 tests hain, sab pass hone chahiye.
 - Postgres chahiye. Docker is env me kaam nahi karta. Isliye:
   ```
   sudo apt-get install -y postgresql
@@ -54,14 +54,16 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 
 ## Code kahan hai
 - `api/` — admin, auth, conversations, dashboard, health, onboard, payments,
-  products, webhook, whatsapp, cron/trial
+  products, shop (profile + `?preview`), webhook, whatsapp, cron/trial.
+  **Vercel Hobby par sirf 12 functions allowed hain** aur `api/` already 12 par
+  hai — naya endpoint banane ke bajaye kisi purani file me jodo.
 - `lib/` — ai.js (reply+parse), auth.js (scrypt, 7-day session), db.js,
   http.js, orders.js, trial.js, whatsapp.js
 - `public/` — admin.html, app.html, index.html, assets/
 - `db/schema.sql`, `vercel.json`, `tests/e2e.test.js`, `scripts/`
 
 ## Jo kaam HO CHUKA hai (dobara mat banao)
-- Multi-tenant backend + 22 passing tests
+- Multi-tenant backend + 28 passing tests
 - Operator panel: saari shops, trial countdown, order count,
   Suspend / Activate / Disconnect / Export CSV
 - Shop dashboard: orders, catalog (rupees), chat inbox, manual reply
@@ -76,8 +78,20 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
    name + phone** — abhi `orders` table me sirf items + total hai. Bina address
    ke phool deliver nahi hote. AI ko bhi sikhana hai ye message se nikalna
    ("kal shaam 6 baje, 12 Gandhi Road").
-2. **Asli AI reply** — Vercel par `OPENAI_API_KEY` **nahi** hai, isliye abhi
-   keyword fallback chal raha hai, human-like AI nahi. Key add karke redeploy.
+2. ~~**Asli AI reply**~~ **HO GAYA.** `lib/ai.js` ab gemini → groq → cerebras →
+   openrouter → openai chain chalata hai; jo pehle jawab de wo jeet gaya. Reply
+   **customer ki bhasha** me (English/Hinglish/Hindi) aata hai. Vercel par
+   `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`
+   lagi hain. `CEREBRAS_API_KEY` abhi **nahi** hai (optional).
+   - **Dhyan do:** model ke naam badalte rehte hain. Live par `/api/shop?preview`
+     chalao — response me har provider ka fail reason aata hai (404 = model
+     purana, 429 = quota khatam, 401 = key galat). Model override ke liye
+     `GEMINI_MODEL` / `GROQ_MODEL` / `OPENROUTER_MODEL` / `OPENAI_MODEL` env.
+   - Vercel par AI keys **sensitive** hain, isliye `vercel env pull` unki jagah
+     `[SENSITIVE]` likhta hai — local par verify nahi ho sakta, sirf deploy ke
+     baad `?preview` se.
+   - Shop profile (address/hours/delivery/tone) `/api/shop` se save hota hai aur
+     AI use karta hai taaki reply asli dukaandaar jaisa lage.
 3. **Meta Embedded Signup** — abhi manual token paste hai, jo shop owner ke
    liye bahut mushkil hai. Isko proper signup flow banana hai.
 4. **Asli payment (Razorpay)** — abhi payment nakli hai, paisa nahi katta.
