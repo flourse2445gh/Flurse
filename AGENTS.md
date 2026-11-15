@@ -85,18 +85,35 @@ messages into orders and shows them in a dashboard. 3-day trial, then
   Small talk is still stored and answered, but never becomes a ₹0 order. The
   inbound `wa_message_id` is claimed in `messages` first, so a Meta retry
   produces neither a second order nor a second reply.
-- **Shop profile** (`/api/shop`): address, hours, delivery, tone and extra
-  instructions are fed to the model so a reply sounds like the owner. The same
-  endpoint's `?preview` action drafts a sample reply using the live providers,
-  which is also how you check that keys and model names still work.
+- **Shop profile** (`/api/shop`): address, hours, delivery, tone, extra
+  instructions and the shop's **UPI id** are fed to the model so a reply sounds
+  like the owner. The same endpoint's `?preview` action runs the real order +
+  reply path and drafts a sample reply using the live providers, which is also
+  how you check that keys and model names still work.
+- **Order details** (`orders` table): the AI fills `fulfilment`
+  (delivery/pickup), `delivery_address`, `delivery_at`, `delivery_note`,
+  `recipient_name` and `recipient_phone` from the thread. A later message that
+  only adds an address or a time merges onto the customer's newest open order
+  (`pending`/`confirmed`) instead of creating a new one. `guessDeliveryAt()`
+  resolves "kal shaam 6 baje" in IST without the model, as a backstop.
+- **Payment is manual and required before fulfilment.** Orders default to
+  `payment_status = 'unpaid'`. The owner marks `paid` (or `refunded`) from the
+  dashboard after the UPI transfer lands; `POST /api/dashboard?order_id=..&payment=1`
+  does it. `POST` with `status=fulfilled` on an unpaid order returns **409**
+  (`PAYMENT_REQUIRED`) — money before flowers. The dashboard also renders a
+  tappable `upi://pay?...` link from the shop's UPI id. There is **no** PSP
+  integration: nothing captures money automatically, and the AI only ever
+  shares the shop's own UPI id, never asks for card/CVV/OTP.
 - **Landing page copy must match reality.** Do not advertise features the
   code does not implement. Current honest claims: catalog-based AI order
-  parsing, human-sounding replies that match the customer's language
-  (English/Hinglish/Hindi), automatic failover across several AI providers,
-  WhatsApp-style inbox, catalog manager, shop-profile settings, booking
-  dashboard, multi-tenant isolation, Cloud API connect/disconnect.
-  Do NOT claim: QR/Linked-Devices pairing, same-day detection, budget-based
-  bouquet suggestions, UPI payment links, or a `/join?shop=` route.
+  parsing, delivery details captured from the chat, human-sounding replies that
+  match the customer's language (English/Hinglish/Hindi), automatic failover
+  across several AI providers, WhatsApp-style inbox, catalog manager,
+  shop-profile settings, booking dashboard with payment tracking, multi-tenant
+  isolation, Cloud API connect/disconnect.
+  Do NOT claim: automatic payment capture or a payment gateway, QR/Linked-Devices
+  pairing, same-day detection, budget-based bouquet suggestions, or a
+  `/join?shop=` route.
 - **WhatsApp connect** is done by pasting a Meta *Phone number ID* +
   *Access token* in the app's WhatsApp tab. **Disconnect** is the DELETE on
   `/api/whatsapp`, surfaced in that tab and as a header chip (`waChip`).

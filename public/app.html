@@ -130,7 +130,7 @@
     <section id="tab-orders" class="tabpane hidden">
       <div class="card flat" style="padding:6px 16px 16px;overflow-x:auto">
         <table>
-          <thead><tr><th>When</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>When</th><th>Customer</th><th>Items</th><th>Delivery</th><th>Total</th><th>Payment</th><th>Status</th><th></th></tr></thead>
           <tbody id="ordersBody"></tbody>
         </table>
       </div>
@@ -224,6 +224,8 @@
               <input id="setDelivery" placeholder="Jaipur me 3 ghante me free, bahar ₹50"></div>
             <div class="field"><label for="setTone">Voice / andaaz</label>
               <input id="setTone" placeholder="Warm, short, 'bhaiya' jaisa, thoda Hinglish"></div>
+            <div class="field"><label for="setUpi">UPI id (payment lene ke liye)</label>
+              <input id="setUpi" placeholder="jaipurflowers@okhdfcbank"></div>
             <div class="field"><label for="setInstructions">Extra instructions (optional)</label>
               <input id="setInstructions" placeholder="Bulk order par 10% off de sakte hain"></div>
             <div class="row">
@@ -398,21 +400,72 @@ $('refreshBtn').onclick = () => enterApp().catch(() => showAuth('login'));
 
 // ---- orders --------------------------------------------------------------
 const NEXT = { pending: 'confirmed', confirmed: 'fulfilled' };
+// Formats the delivery details a florist needs, and marks what is still
+// missing so an incomplete order is obvious at a glance.
+function deliveryCell(o) {
+  const bits = [];
+  if (o.fulfilment) bits.push(o.fulfilment === 'pickup' ? '🏪 Pickup' : '🚚 Delivery');
+  if (o.delivery_at) {
+    const d = new Date(o.delivery_at);
+    bits.push(`🕒 ${d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`);
+  }
+  if (o.delivery_address) bits.push(`📍 ${escapeHtml(o.delivery_address)}`);
+  if (o.recipient_name) bits.push(`👤 ${escapeHtml(o.recipient_name)}`);
+  if (o.recipient_phone) bits.push(`📞 ${escapeHtml(o.recipient_phone)}`);
+  if (o.delivery_note) bits.push(`💬 ${escapeHtml(o.delivery_note)}`);
+  const missing = [];
+  if (!o.fulfilment) missing.push('delivery/pickup');
+  if (o.fulfilment !== 'pickup' && !o.delivery_address) missing.push('address');
+  if (!o.delivery_at) missing.push('time');
+  if (!o.recipient_name) missing.push('name');
+  if (!bits.length) return '<span class="muted" style="font-size:12px">Adhoora: ' + missing.join(', ') + '</span>';
+  const warn = missing.length
+    ? `<div class="muted" style="font-size:11px;margin-top:4px">Baaki: ${missing.join(', ')}</div>`
+    : '';
+  return `<div style="font-size:12.5px;line-height:1.5">${bits.join('<br>')}${warn}</div>`;
+}
+
+// A UPI link the customer can tap straight from the dashboard, and the
+// paid/unpaid state so the owner knows whether the money has landed.
+function paymentCell(o) {
+  const paid = o.payment_status === 'paid';
+  const pill = paid
+    ? '<span class="pill fulfilled">paid</span>'
+    : o.payment_status === 'refunded'
+      ? '<span class="pill cancelled">refunded</span>'
+      : '<span class="pill pending">unpaid</span>';
+  const parts = [pill];
+  if (paid && o.paid_at) parts.push(`<div class="muted" style="font-size:11px;margin-top:4px">${timeAgo(o.paid_at)}</div>`);
+  if (!paid && state.tenant.upiId && o.total_cents) {
+    const upi = `upi://pay?pa=${encodeURIComponent(state.tenant.upiId)}&pn=${encodeURIComponent(state.tenant.businessName || 'Shop')}&am=${(o.total_cents / 100).toFixed(2)}&cu=INR&tn=${encodeURIComponent('Order ' + o.id.slice(0, 8))}`;
+    parts.push(`<div style="margin-top:6px"><a class="btn ghost sm" href="${escapeHtml(upi)}">UPI link</a></div>`);
+  }
+  return parts.join('');
+}
+
 function renderOrders() {
   const body = $('ordersBody');
-  if (!state.orders.length) { body.innerHTML = '<tr><td colspan="6" class="empty">Abhi koi order nahi. Customer ka WhatsApp message aate hi yahan dikhega.</td></tr>'; return; }
+  if (!state.orders.length) { body.innerHTML = '<tr><td colspan="8" class="empty">Abhi koi order nahi. Customer ka WhatsApp message aate hi yahan dikhega.</td></tr>'; return; }
   const locked = state.tenant.status === 'suspended' || state.tenant.status === 'cancelled';
   body.innerHTML = state.orders.map((o) => {
     const items = (o.items || []).map((i) => `${i.quantity}× ${escapeHtml(i.name)}`).join(', ') || '—';
     const next = NEXT[o.status];
-    const action = next && !locked ? `<button class="btn ghost sm" data-order="${o.id}" data-status="${next}">Mark ${next}</button>` : '';
+    const buttons = [];
+    if (o.payment_status !== 'paid') {
+      buttons.push(`<button class="btn ghost sm" data-order="${o.id}" data-payment="paid">Mark paid</button>`);
+    }
+    if (next && !locked) {
+      buttons.push(`<button class="btn ghost sm" data-order="${o.id}" data-status="${next}">Mark ${next}</button>`);
+    }
     return `<tr>
       <td class="muted">${timeAgo(o.created_at)}</td>
       <td>${escapeHtml(o.display_name || o.wa_id || 'Unknown')}</td>
       <td>${items}</td>
+      <td>${deliveryCell(o)}</td>
       <td><b>${rupees(o.total_cents)}</b></td>
+      <td>${paymentCell(o)}</td>
       <td><span class="pill ${o.status}">${o.status}</span></td>
-      <td>${action}</td>
+      <td><div class="row" style="gap:6px;flex-wrap:wrap">${buttons.join('')}</div></td>
     </tr>`;
   }).join('');
 }
@@ -421,13 +474,20 @@ $('ordersBody').onclick = async (e) => {
   const btn = e.target.closest('button[data-order]');
   if (!btn) return;
   btn.disabled = true;
+  const isPayment = btn.dataset.payment === 'paid';
+  const path = isPayment
+    ? `/api/dashboard?order_id=${btn.dataset.order}&payment=1`
+    : `/api/dashboard?order_id=${btn.dataset.order}`;
+  const body = isPayment
+    ? { payment_status: 'paid', method: 'upi' }
+    : { status: btn.dataset.status };
   try {
-    await api(`/api/dashboard?order_id=${btn.dataset.order}`, { method: 'POST', body: JSON.stringify({ status: btn.dataset.status }) });
+    await api(path, { method: 'POST', body: JSON.stringify(body) });
     const data = await api('/api/dashboard');
     state.orders = data.orders;
     renderSummary(data.summary);
     renderOrders();
-    toast(`Order → ${btn.dataset.status}`);
+    toast(isPayment ? 'Payment mil gaya ✅' : `Order → ${btn.dataset.status}`);
   } catch (err) { toast(err.message); btn.disabled = false; }
 };
 
@@ -624,6 +684,7 @@ async function loadSettings() {
   $('setHours').value = settings.shop_hours || '';
   $('setDelivery').value = settings.shop_delivery || '';
   $('setTone').value = settings.shop_tone || '';
+  $('setUpi').value = settings.shop_upi_id || '';
   $('setInstructions').value = settings.shop_instructions || '';
 }
 
@@ -636,6 +697,7 @@ $('setForm').onsubmit = async (e) => {
       shop_hours: $('setHours').value,
       shop_delivery: $('setDelivery').value,
       shop_tone: $('setTone').value,
+      shop_upi_id: $('setUpi').value,
       shop_instructions: $('setInstructions').value,
     }) });
     toast('Shop profile save ho gaya ✅');

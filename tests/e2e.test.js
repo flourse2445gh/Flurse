@@ -615,18 +615,51 @@ function startFakeProvider() {
       seen.push({ url: req.url, auth: req.headers.authorization, messages });
 
       const system = messages[0]?.content ?? '';
-      // Read the language from the instruction line, not from shop_tone, which
-      // may itself mention a language.
-      const language = /reply in Hinglish/.test(system) ? 'hinglish'
-        : /reply in Hindi in Devanagari/.test(system) ? 'hi' : 'en';
-      const reply = language === 'hi' ? 'जी, गुलाब उपलब्ध है।'
-        : language === 'hinglish' ? 'Haan bhaiya, gulab available hai'
-          : 'Yes, roses are available';
+      const isParse = /Extract a customer order/.test(system);
+
+      // Order extraction returns items plus delivery details; the reply writer
+      // returns a message. Keep the two shapes apart.
+      const user = messages[1]?.content ?? '';
+      // Match items only in the customer's message, never in the catalog JSON,
+      // which also contains product names like "Latte".
+      const said = user.split('Message: ').pop() ?? user;
+      const item = /latte/i.test(said) ? 'Latte' : /croissant/i.test(said) ? 'Croissant' : null;
+      // The real catalog carries UUIDs, so echo the id the prompt offered
+      // rather than inventing one, exactly like a well-behaved model.
+      let catalogId = null;
+      const catalog = user.match(/Catalog: (\[.*?\])\n/s);
+      if (catalog) {
+        try {
+          const parsed = JSON.parse(catalog[1]);
+          catalogId = parsed.find((p) => p.name === item)?.id ?? null;
+        } catch { /* leave null */ }
+      }
+      const answer = isParse
+        ? {
+          items: catalogId ? [{ id: catalogId, quantity: /2\s*lattes/i.test(said) ? 2 : 1 }] : [],
+          details: {
+            fulfilment: /delivery|gandhi road/i.test(said) ? 'delivery' : null,
+            address: /gandhi road/i.test(said) ? '12 Gandhi Road' : null,
+            at: /6 baje/i.test(said) ? '2026-03-11T12:30:00.000Z' : null,
+            note: null,
+            name: /rahul/i.test(said) ? 'Rahul' : null,
+            phone: /9876543210/.test(said) ? '9876543210' : null,
+          },
+        }
+        : (() => {
+          const language = /reply in Hinglish/.test(system) ? 'hinglish'
+            : /reply in Hindi in Devanagari/.test(system) ? 'hi' : 'en';
+          return {
+            reply: language === 'hi' ? 'जी, गुलाब उपलब्ध है।'
+              : language === 'hinglish' ? 'Haan bhaiya, gulab available hai'
+                : 'Yes, roses are available',
+          };
+        })();
 
       res.setHeader('Content-Type', 'application/json');
       res.end(isGemini
-        ? JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ reply }) }] } }] })
-        : JSON.stringify({ choices: [{ message: { content: JSON.stringify({ reply }) } }] }));
+        ? JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(answer) }] } }] })
+        : JSON.stringify({ choices: [{ message: { content: JSON.stringify(answer) } }] }));
     });
   });
   return { server, seen };
@@ -991,4 +1024,199 @@ test('a chat-only message replies without creating an order', async () => {
       WHERE t.slug = 'test-cafe' AND m.wa_message_id = 'wamid.CHAT1'`,
   );
   assert.equal(msgs.rows.length, 1, 'the customer message is still stored');
+});
+
+test('a relative delivery time is resolved to India time without the model', async () => {
+  const { guessDeliveryAt } = await import('../lib/ai.js');
+  const now = new Date('2026-03-10T06:00:00Z'); // 11:30 IST
+
+  assert.equal(guessDeliveryAt('no time here at all', now), null);
+  assert.equal(guessDeliveryAt('kitna price hai', now), null, 'a price is not a time');
+
+  const tonight = guessDeliveryAt('aaj shaam 6 baje bhej do', now);
+  const d = new Date(tonight);
+  assert.equal(d.getUTCHours(), 12, '6pm IST is 12:30 UTC');
+  assert.equal(d.getUTCMinutes(), 30);
+  assert.equal(d.getUTCDate(), 10);
+
+  // The day is the Indian one, so compare in IST and not in UTC.
+  const istDay = (iso) => new Date(new Date(iso).getTime() + 5.5 * 3600 * 1000).getUTCDate();
+  assert.equal(istDay(guessDeliveryAt('kal subah 9 baje', now)), 11, '"kal" is the next day');
+  assert.equal(istDay(guessDeliveryAt('parso 5 baje', now)), 12, '"parso" is two days out');
+});
+
+test('delivery details from the thread land on the order', async () => {
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', status = 'active' WHERE slug = 'test-cafe'",
+  );
+  await query("DELETE FROM orders WHERE wa_message_id IN ('wamid.D1', 'wamid.D2', 'wamid.D3')");
+
+  async function inbound(text, id) {
+    const payload = inboundPayload({ phoneNumberId: 'PHONE1', from: '15550003333', text, id });
+    const { raw, sig } = signedWebhook(payload);
+    const res = await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+      body: raw,
+    });
+    assert.equal(res.status, 200);
+  }
+
+  // A provider is configured, so parseOrder asks it for details too.
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'details-key';
+  try {
+    await inbound('2 lattes chahiye, kal shaam 6 baje, 12 Gandhi Road, naam Rahul', 'wamid.D1');
+
+    const { rows } = await query(
+      "SELECT * FROM orders WHERE wa_message_id = 'wamid.D1'",
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].fulfilment, 'delivery', 'the model fills fulfilment');
+    assert.equal(rows[0].delivery_address, '12 Gandhi Road');
+    assert.equal(rows[0].recipient_name, 'Rahul');
+    assert.ok(rows[0].delivery_at, 'the delivery time is set');
+    const when = new Date(rows[0].delivery_at);
+    assert.equal(when.getUTCHours(), 12, '6pm IST');
+    assert.equal(when.getUTCMinutes(), 30);
+
+    // A later message that adds only the phone number must not need a new
+    // order; it lands on the one already open.
+    await inbound('phone 9876543210', 'wamid.D2');
+    const after = await query(
+      "SELECT recipient_phone FROM orders WHERE wa_message_id = 'wamid.D1'",
+    );
+    assert.equal(after.rows[0].recipient_phone, '9876543210', 'details merge onto the open order');
+
+    const extra = await query(
+      "SELECT COUNT(*)::int AS n FROM orders WHERE wa_message_id = 'wamid.D2'",
+    );
+    assert.equal(extra.rows[0].n, 0, 'a detail-only message creates no new order');
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+
+  const listed = await api('/api/dashboard', { cookie: (await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  })).cookie });
+  assert.equal(listed.status, 200);
+  const order = listed.body.orders.find((o) => o.delivery_address === '12 Gandhi Road');
+  assert.ok(order, 'the dashboard exposes the delivery details');
+  assert.equal(order.fulfilment, 'delivery');
+  assert.equal(order.recipient_name, 'Rahul');
+});
+
+test('money comes before flowers: an order must be paid before it is fulfilled', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  assert.ok(login.cookie);
+
+  await query(
+    `INSERT INTO products (tenant_id, sku, name, price_cents)
+     SELECT id, 'ROS', 'Rose', 500 FROM tenants WHERE slug = 'test-cafe'
+     ON CONFLICT (tenant_id, sku) DO NOTHING`,
+  );
+
+  const payload = inboundPayload({
+    phoneNumberId: 'PHONE1', from: '15550004444', text: '1 rose', id: 'wamid.PAY1',
+  });
+  const { raw, sig } = signedWebhook(payload);
+  await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+
+  const { rows } = await query(
+    "SELECT id, total_cents, payment_status FROM orders WHERE wa_message_id = 'wamid.PAY1'",
+  );
+  assert.equal(rows.length, 1);
+  const orderId = rows[0].id;
+  assert.equal(rows[0].payment_status, 'unpaid', 'a new order starts unpaid');
+
+  // Fulfilling an unpaid order is refused, not silently allowed.
+  const blocked = await api(`/api/dashboard?order_id=${orderId}`, {
+    method: 'POST', cookie: login.cookie, body: { status: 'fulfilled' },
+  });
+  assert.equal(blocked.status, 409);
+  assert.match(blocked.body.error, /paid/i);
+
+  // Confirm first (allowed), still unpaid.
+  const confirm = await api(`/api/dashboard?order_id=${orderId}`, {
+    method: 'POST', cookie: login.cookie, body: { status: 'confirmed' },
+  });
+  assert.equal(confirm.status, 200);
+
+  // Bad payment status is rejected.
+  const bad = await api(`/api/dashboard?order_id=${orderId}&payment=1`, {
+    method: 'POST', cookie: login.cookie, body: { payment_status: 'maybe' },
+  });
+  assert.equal(bad.status, 400);
+
+  // Mark paid, then fulfilment goes through.
+  const paid = await api(`/api/dashboard?order_id=${orderId}&payment=1`, {
+    method: 'POST', cookie: login.cookie, body: { payment_status: 'paid', method: 'upi' },
+  });
+  assert.equal(paid.status, 200);
+  assert.equal(paid.body.order.payment_status, 'paid');
+  assert.equal(paid.body.order.payment_method, 'upi');
+  assert.ok(paid.body.order.paid_at);
+
+  const fulfil = await api(`/api/dashboard?order_id=${orderId}`, {
+    method: 'POST', cookie: login.cookie, body: { status: 'fulfilled' },
+  });
+  assert.equal(fulfil.status, 200);
+  assert.equal(fulfil.body.order.status, 'fulfilled');
+
+  // Another tenant cannot touch this order's payment.
+  const other = await api('/api/onboard', {
+    method: 'POST',
+    body: {
+      business_name: 'Other Shop', slug: 'other-shop-pay',
+      email: 'owner@other-pay.test', password: 'supersecret123', phone: '9000000000',
+    },
+  });
+  assert.equal(other.status, 201);
+  const cross = await api(`/api/dashboard?order_id=${orderId}&payment=1`, {
+    method: 'POST', cookie: other.cookie, body: { payment_status: 'refunded' },
+  });
+  assert.equal(cross.status, 404, 'payment updates are tenant scoped');
+});
+
+test('the AI asks for payment once the order details are known', async () => {
+  await query(
+    "UPDATE tenants SET shop_upi_id = 'jaipur@okhdfcbank' WHERE slug = 'test-cafe'",
+  );
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'pay-key';
+  try {
+    const login = await api('/api/auth?action=login', {
+      method: 'POST',
+      body: { email: 'owner@test.cafe', password: 'supersecret123' },
+    });
+    const preview = await api('/api/shop?preview', {
+      method: 'POST', cookie: login.cookie,
+      body: { message: '2 lattes chahiye' },
+    });
+    assert.equal(preview.status, 200);
+
+    // The prompt carries the shop's UPI id so the reply can share it, and it
+    // never asks the customer for card details.
+    const system = fake.seen.map((s) => s.messages[0].content).join('\n');
+    assert.match(system, /jaipur@okhdfcbank/);
+    assert.match(system, /never ask for card numbers, CVV, OTPs/);
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
 });

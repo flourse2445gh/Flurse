@@ -217,3 +217,28 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_hours        TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_delivery     TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_tone         TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_instructions TEXT;
+
+-- Delivery details on an order. The AI fills these from the thread as the
+-- customer talks ("kal shaam 6 baje, 12 Gandhi Road"), so a florist can act on
+-- an order without asking the customer anything again.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfilment      TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_address TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_at     TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_note   TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_name  TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_phone TEXT;
+
+-- Payment. A florist takes the money before the flowers leave, so an order is
+-- not done until it is paid. `unpaid` is the only non-terminal state; the shop
+-- owner marks `paid` or `refunded` by hand after seeing the transfer land.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'unpaid';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at        TIMESTAMPTZ;
+
+-- The shop's own UPI id, so the AI can share it without the owner retyping it
+-- on every order.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shop_upi_id TEXT;
+
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check;
+ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check
+  CHECK (payment_status IN ('unpaid', 'paid', 'refunded'));
