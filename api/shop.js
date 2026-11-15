@@ -1,6 +1,6 @@
 import { query } from '../lib/db.js';
 import { requireSession, assertTenantWritable } from '../lib/auth.js';
-import { draftReply, availableProviders } from '../lib/ai.js';
+import { draftReply, availableProviders, parseOrder } from '../lib/ai.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 // The shop profile the AI speaks in: address, hours, delivery promise and the
@@ -12,6 +12,7 @@ const FIELDS = [
   'shop_delivery',
   'shop_tone',
   'shop_instructions',
+  'shop_upi_id',
 ];
 
 const SELECT = `business_name, owner_phone, ${FIELDS.join(', ')}`;
@@ -60,12 +61,28 @@ async function previewReply(req, res, session) {
     ),
   ]);
 
+  // Parse exactly like the webhook does, then present the order as still new:
+  // unpaid, and with the details the customer has not given yet. That is the
+  // first reply a shop owner wants to see.
+  const parsed = await parseOrder(text, productsResult.rows.filter((p) => p.active !== false));
+  const totalCents = parsed.items.reduce((sum, i) => sum + i.unitPriceCents * i.quantity, 0);
+
   const drafted = await draftReply({
     tenant: tenantResult.rows[0],
     products: productsResult.rows,
     messageText: text,
-    items: [],
+    items: parsed.items,
     history: [],
+    order: parsed.items.length
+      ? {
+        payment_status: 'unpaid',
+        total_cents: totalCents,
+        fulfilment: parsed.details.fulfilment,
+        delivery_address: parsed.details.address,
+        delivery_at: parsed.details.at,
+        recipient_name: parsed.details.name,
+      }
+      : null,
   });
 
   json(res, 200, {

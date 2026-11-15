@@ -63,7 +63,7 @@ export default handler(async (req, res) => {
 async function handleMessage(message) {
   const { rows: tenants } = await query(
     `SELECT id, status, wa_phone_number_id, wa_access_token, business_name,
-            shop_address, shop_hours, shop_delivery, shop_tone, shop_instructions
+            shop_address, shop_hours, shop_delivery, shop_tone, shop_instructions, shop_upi_id
        FROM tenants WHERE wa_phone_number_id = $1`,
     [message.phoneNumberId],
   );

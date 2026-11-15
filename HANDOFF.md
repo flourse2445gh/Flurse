@@ -39,7 +39,7 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
   `git push https://flourse2445gh:${GITHUB_TOKEN}@github.com/flourse2445gh/Flurse.git phase-1-backend:phase-1-backend`
 
 ## Test kaise chalate hain
-- `npm test` (node --test). 33 tests hain, sab pass hone chahiye.
+- `npm test` (node --test). 37 tests hain, sab pass hone chahiye.
 - Postgres chahiye. Docker is env me kaam nahi karta. Isliye:
   ```
   sudo apt-get install -y postgresql
@@ -63,7 +63,7 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 - `db/schema.sql`, `vercel.json`, `tests/e2e.test.js`, `scripts/`
 
 ## Jo kaam HO CHUKA hai (dobara mat banao)
-- Multi-tenant backend + 33 passing tests
+- Multi-tenant backend + 37 passing tests
 - Operator panel: saari shops, trial countdown, order count,
   Suspend / Activate / Disconnect / Export CSV
 - Shop dashboard: orders, catalog (rupees), chat inbox, manual reply
@@ -94,7 +94,9 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
      AI use karta hai taaki reply asli dukaandaar jaisa lage.
 3. **Meta Embedded Signup** — abhi manual token paste hai, jo shop owner ke
    liye bahut mushkil hai. Isko proper signup flow banana hai.
-4. **Asli payment (Razorpay)** — abhi payment nakli hai, paisa nahi katta.
+4. **Asli payment capture (Razorpay/PSP)** — abhi order par `payment_status`
+   (unpaid/paid/refunded) hai aur owner khud "Mark paid" karta hai UPI transfer
+   dekh kar. Automatic capture nahi hai: PSP wire karna baaki hai.
 5. **Brand naam** — code me BudsBox 25 jagah, OrderBuds 1 jagah. Sab
    **BudsBox** karna hai.
 
