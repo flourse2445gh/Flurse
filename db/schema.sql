@@ -255,3 +255,30 @@ CREATE INDEX IF NOT EXISTS tenants_qr_token_idx ON tenants (shop_payment_qr_toke
 ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check;
 ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check
   CHECK (payment_status IN ('unpaid', 'paid', 'refunded'));
+
+-- ---------------------------------------------------------------------------
+-- Razorpay subscriptions
+-- ---------------------------------------------------------------------------
+-- When the current paid period ends. Null while the shop is only trialing.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS paid_until TIMESTAMPTZ;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan TEXT;
+
+-- One row per checkout attempt. The webhook is the source of truth for money
+-- arriving; a row is only marked paid when Razorpay says so, never when the
+-- browser says so.
+CREATE TABLE IF NOT EXISTS payments (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id         UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  plan              TEXT NOT NULL,
+  amount_cents      INTEGER NOT NULL,
+  currency          TEXT NOT NULL DEFAULT 'INR',
+  razorpay_order_id TEXT UNIQUE,
+  razorpay_payment_id TEXT,
+  status            TEXT NOT NULL DEFAULT 'created'
+                    CHECK (status IN ('created', 'paid', 'failed')),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  paid_at           TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS payments_tenant_idx ON payments (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS payments_order_idx ON payments (razorpay_order_id);

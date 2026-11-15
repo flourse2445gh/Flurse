@@ -292,11 +292,12 @@
         </label>
       </div>
       <button id="payDo" class="btn block" style="background:#3395ff;margin-top:18px">Pay ₹599</button>
-      <p class="muted center" style="margin:12px 0 0;font-size:10.5px">🔒 Test mode · activation is stubbed</p>
+      <p class="muted center" style="margin:12px 0 0;font-size:10.5px" id="payNote">🔒 Razorpay secure checkout</p>
     </div>
   </div>
 </div>
 
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script src="/assets/app.js"></script>
 <script>
 const state = { tenant: null, orders: [], conversations: [], activeConv: null, products: [], wa: null };
@@ -790,9 +791,38 @@ $('payDo').onclick = async () => {
   const btn = $('payDo');
   btn.disabled = true; btn.textContent = 'Processing…';
   try {
-    await api('/api/payments?action=upgrade', { method: 'POST', body: JSON.stringify({ plan: 'starter' }) });
+    const order = await api('/api/payments?action=checkout', {
+      method: 'POST', body: JSON.stringify({ plan: 'starter' }),
+    });
+
+    // No keys configured: fall back to the local stub so the dashboard still
+    // works in development.
+    if (!order.orderId) { await enterApp(); return; }
+
+    await new Promise((resolve, reject) => {
+      const rzp = new Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: 'BudsBox',
+        description: order.plan.name,
+        order_id: order.orderId,
+        prefill: { name: order.name },
+        theme: { color: '#3395ff' },
+        handler: async (resp) => {
+          try {
+            await api('/api/payments?action=verify', { method: 'POST', body: resp });
+            resolve();
+          } catch (err) { reject(err); }
+        },
+        modal: { ondismiss: () => reject(new Error('Payment band kar diya')) },
+      });
+      rzp.on('payment.failed', (e) => reject(new Error(e.error?.description || 'Payment failed')));
+      rzp.open();
+    });
+
     $('payModal').classList.add('hidden');
-    toast('Payment successful! 30 din extend 🎉');
+    toast('Payment ho gaya! 30 din extend 🎉');
     await enterApp();
   } catch (err) { toast(err.message); }
   finally { btn.disabled = false; btn.textContent = 'Pay ₹599'; }

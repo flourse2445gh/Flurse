@@ -21,6 +21,7 @@ const BASE = `http://localhost:${PORT}`;
 let server;
 let pool;
 let query;
+let expireTrials;
 
 // -- helpers ---------------------------------------------------------------
 
@@ -82,6 +83,7 @@ before(async () => {
   const db = await import('../lib/db.js');
   pool = db.getPool();
   query = db.query;
+  expireTrials = (await import('../lib/trial.js')).expireTrials;
 
   // Fresh schema for every run.
   await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
@@ -1330,4 +1332,178 @@ test('asking how to pay sends the shop QR and never spends an AI call', async ()
     process.env = saved;
     await new Promise((r) => fake.server.close(r));
   }
+});
+
+// -- razorpay --------------------------------------------------------------
+
+test('checkout is refused until Razorpay keys exist, then creates an order', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  const before = await api('/api/payments?action=checkout', {
+    method: 'POST', cookie: login.cookie, body: { plan: 'starter' },
+  });
+  assert.equal(before.status, 503, 'no keys, no checkout');
+  assert.equal(before.body.error, 'Payments are not configured yet');
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  let sentBody = null;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('api.razorpay.com')) {
+      sentBody = JSON.parse(opts.body);
+      return new Response(JSON.stringify({ id: 'order_E2E1', amount: sentBody.amount }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const checkout = await api('/api/payments?action=checkout', {
+      method: 'POST', cookie: login.cookie, body: { plan: 'starter' },
+    });
+    assert.equal(checkout.status, 200);
+    assert.equal(checkout.body.orderId, 'order_E2E1');
+    assert.equal(checkout.body.amount, 59900, 'amount is sent in paise');
+    assert.equal(sentBody.amount, 59900);
+    assert.equal(sentBody.currency, 'INR');
+    assert.equal(checkout.body.keyId, 'rzp_test_e2e');
+
+    // A checkout attempt is recorded as unpaid, not as money received.
+    const { rows } = await query(
+      "SELECT status FROM payments WHERE razorpay_order_id = 'order_E2E1'",
+    );
+    assert.equal(rows[0].status, 'created');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('a tampered payment cannot activate a shop, a signed one can', async () => {
+  await query(
+    "UPDATE tenants SET status = 'suspended', wa_access_token = NULL, paid_until = NULL WHERE slug = 'test-cafe'",
+  );
+  await query(
+    `INSERT INTO payments (tenant_id, plan, amount_cents, razorpay_order_id)
+     SELECT id, 'starter', 59900, 'order_E2E2' FROM tenants WHERE slug = 'test-cafe'`,
+  );
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+
+  try {
+    const login = await api('/api/auth?action=login', {
+      method: 'POST',
+      body: { email: 'owner@test.cafe', password: 'supersecret123' },
+    });
+
+    // A forged signature is refused, and the shop stays suspended.
+    const forged = await api('/api/payments?action=verify', {
+      method: 'POST', cookie: login.cookie,
+      body: { razorpay_order_id: 'order_E2E2', razorpay_payment_id: 'pay_X', razorpay_signature: 'deadbeef' },
+    });
+    assert.equal(forged.status, 400);
+    const still = await query("SELECT status FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(still.rows[0].status, 'suspended');
+
+    // The real signature, computed the way Razorpay does, activates the shop.
+    const signature = crypto.createHmac('sha256', 'e2e-secret')
+      .update('order_E2E2|pay_E2E2').digest('hex');
+    const ok = await api('/api/payments?action=verify', {
+      method: 'POST', cookie: login.cookie,
+      body: { razorpay_order_id: 'order_E2E2', razorpay_payment_id: 'pay_E2E2', razorpay_signature: signature },
+    });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.tenant.status, 'active');
+
+    const paid = await query(
+      "SELECT status, razorpay_payment_id, paid_at FROM payments WHERE razorpay_order_id = 'order_E2E2'",
+    );
+    assert.equal(paid.rows[0].status, 'paid');
+    assert.equal(paid.rows[0].razorpay_payment_id, 'pay_E2E2');
+    assert.ok(paid.rows[0].paid_at, 'paid_at is stamped');
+
+    // Replaying the same callback does not extend the period twice.
+    const first = await query("SELECT paid_until FROM tenants WHERE slug = 'test-cafe'");
+    const replay = await api('/api/payments?action=verify', {
+      method: 'POST', cookie: login.cookie,
+      body: { razorpay_order_id: 'order_E2E2', razorpay_payment_id: 'pay_E2E2', razorpay_signature: signature },
+    });
+    assert.equal(replay.status, 404, 'a settled order cannot be settled again');
+    const second = await query("SELECT paid_until FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(
+      new Date(second.rows[0].paid_until).getTime(),
+      new Date(first.rows[0].paid_until).getTime(),
+    );
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('the webhook activates a shop on payment.captured and rejects a bad signature', async () => {
+  await query(
+    "UPDATE tenants SET status = 'suspended', wa_access_token = NULL, paid_until = NULL WHERE slug = 'test-cafe'",
+  );
+  await query(
+    `INSERT INTO payments (tenant_id, plan, amount_cents, razorpay_order_id)
+     SELECT id, 'starter', 59900, 'order_E2E3' FROM tenants WHERE slug = 'test-cafe'`,
+  );
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_WEBHOOK_SECRET = 'wh-secret';
+  const event = JSON.stringify({
+    event: 'payment.captured',
+    payload: { payment: { entity: { id: 'pay_E2E3', order_id: 'order_E2E3' } } },
+  });
+
+  try {
+    const bad = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-razorpay-signature': 'nope' },
+      body: event,
+    });
+    assert.equal(bad.status, 401);
+    const untouched = await query("SELECT status FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(untouched.rows[0].status, 'suspended', 'an unsigned webhook changes nothing');
+
+    const sig = crypto.createHmac('sha256', 'wh-secret').update(event).digest('hex');
+    const good = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-razorpay-signature': sig },
+      body: event,
+    });
+    assert.equal(good.status, 200);
+
+    const tenant = await query("SELECT status, plan, paid_until FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(tenant.rows[0].status, 'active');
+    assert.equal(tenant.rows[0].plan, 'starter');
+    assert.ok(tenant.rows[0].paid_until, 'the paid period is set');
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('a lapsed paid period is suspended by the cron, a live one is not', async () => {
+  await query(
+    `UPDATE tenants SET status = 'active', plan = 'starter',
+       paid_until = now() + interval '5 days' WHERE slug = 'test-cafe'`,
+  );
+  const kept = await expireTrials();
+  assert.ok(!kept.some((t) => t.slug === 'test-cafe'), 'a live subscription is left alone');
+
+  await query(
+    "UPDATE tenants SET paid_until = now() - interval '1 minute' WHERE slug = 'test-cafe'",
+  );
+  const expired = await expireTrials();
+  assert.ok(expired.some((t) => t.slug === 'test-cafe'), 'a lapsed subscription is suspended');
+  const after = await query("SELECT status, disconnect_reason FROM tenants WHERE slug = 'test-cafe'");
+  assert.equal(after.rows[0].status, 'suspended');
+  assert.equal(after.rows[0].disconnect_reason, 'subscription_expired');
 });

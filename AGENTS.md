@@ -108,6 +108,18 @@ messages into orders and shows them in a dashboard. 3-day trial, then
   id text if the image send fails. Only fires when a QR is uploaded; otherwise
   the normal AI reply handles it. `PUBLIC_BASE_URL` overrides the link base
   (falls back to Vercel's production URL).
+- **Subscription billing via Razorpay.** `lib/razorpay.js` wraps the Orders API
+  and both signature checks. `POST /api/payments?action=checkout` opens a
+  checkout (records a `payments` row as `created`), `action=verify` settles the
+  browser callback, and `action=webhook` (`payment.captured`, signature-checked
+  with `RAZORPAY_WEBHOOK_SECRET`) settles server-to-server. Both paths call
+  `settle()`, which is idempotent on `razorpay_order_id`, so whichever arrives
+  first activates the shop once. Activation sets `status='active'`, `plan`, and
+  `paid_until` (extended from the later of now or the existing `paid_until`, so
+  renewing early never loses days). `expireTrials()` also suspends an `active`
+  tenant whose `paid_until` has passed. `action=upgrade` stays as a no-money
+  stub but is refused once keys are configured, so it cannot skip payment in
+  production. Amounts are paise, like orders.
 - **Payment is manual and required before fulfilment.** Orders default to
   `payment_status = 'unpaid'`. The owner marks `paid` (or `refunded`) from the
   dashboard after the UPI transfer lands; `POST /api/dashboard?order_id=..&payment=1`
