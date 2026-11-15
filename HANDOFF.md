@@ -20,9 +20,9 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 - Vercel project: `flowers`, id `prj_7VyDNo8e35coEjEmh6KLksbH9Kmf`,
   team `team_KzNJiOJKwipHpImVp8JH6OSf`
 - DB: Neon Postgres (connection string Vercel env `DATABASE_URL` me)
-- **`/admin` abhi OPEN hai** — koi password nahi. `ADMIN_SECRET` env set karne
-  par panel khud lock ho jata hai (code change ki zaroorat nahi). User ne
-  jaan-boojh kar abhi open rakha hai kyunki wo test kar raha hai.
+- **`/admin` ab default LOCKED hai** — `ADMIN_SECRET` unset hone par admin API
+  401 deta hai aur panel sirf gate dikhata hai. Panel kholne ke liye
+  `ADMIN_SECRET` env set karo (Vercel) aur redeploy karo.
 
 ## Deploy kaise hota hai (IMPORTANT)
 - Ye Vercel project GitHub se **linked NAHI** hai. Isliye `git push` se
