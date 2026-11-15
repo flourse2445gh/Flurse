@@ -694,7 +694,7 @@ test('AI replies are drafted by the provider and mirror the customer language', 
     assert.equal(detectLanguage('rose chahiye'), 'hinglish');
     assert.equal(detectLanguage('aap delivery karte ho?'), 'hinglish');
     assert.equal(detectLanguage('I need a rose bouquet'), 'en');
-    assert.equal(detectLanguage('Do you deliver outside Jaipur?'), 'en');
+    assert.equal(detectLanguage('Do you deliver outside Bangalore?'), 'en');
 
     const tenant = { business_name: 'Test Cafe', shop_tone: 'warm and short' };
     const products = [{ id: 'p1', name: 'Red Rose', price_cents: 5000, active: true }];
@@ -928,18 +928,18 @@ test('shop profile settings round-trip and are tenant scoped', async () => {
     method: 'POST',
     cookie: login.cookie,
     body: {
-      shop_address: '12 Gandhi Road, Jaipur',
+      shop_address: '12 Gandhi Road, Koramangala, Bangalore',
       shop_hours: '8am-9pm daily',
-      shop_delivery: 'Free in Jaipur, 3 hours',
+      shop_delivery: 'Free in Koramangala, Bangalore, 3 hours',
       shop_tone: 'warm, short, Hinglish',
       shop_instructions: 'Bulk orders get 10% off',
     },
   });
   assert.equal(save.status, 200);
-  assert.equal(save.body.settings.shop_address, '12 Gandhi Road, Jaipur');
+  assert.equal(save.body.settings.shop_address, '12 Gandhi Road, Koramangala, Bangalore');
 
   const read = await api('/api/shop', { cookie: login.cookie });
-  assert.equal(read.body.settings.shop_delivery, 'Free in Jaipur, 3 hours');
+  assert.equal(read.body.settings.shop_delivery, 'Free in Koramangala, Bangalore, 3 hours');
 
   const anon = await api('/api/shop');
   assert.equal(anon.status, 401);
@@ -1192,7 +1192,7 @@ test('money comes before flowers: an order must be paid before it is fulfilled',
 
 test('the AI asks for payment once the order details are known', async () => {
   await query(
-    "UPDATE tenants SET shop_upi_id = 'jaipur@okhdfcbank' WHERE slug = 'test-cafe'",
+    "UPDATE tenants SET shop_upi_id = 'bangalore@okhdfcbank' WHERE slug = 'test-cafe'",
   );
   const fake = startFakeProvider();
   await new Promise((r) => fake.server.listen(0, r));
@@ -1213,7 +1213,7 @@ test('the AI asks for payment once the order details are known', async () => {
     // The prompt carries the shop's UPI id so the reply can share it, and it
     // never asks the customer for card details.
     const system = fake.seen.map((s) => s.messages[0].content).join('\n');
-    assert.match(system, /jaipur@okhdfcbank/);
+    assert.match(system, /bangalore@okhdfcbank/);
     assert.match(system, /never ask for card numbers, CVV, OTPs/);
   } finally {
     process.env = saved;
