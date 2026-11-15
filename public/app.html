@@ -226,6 +226,16 @@
               <input id="setTone" placeholder="Warm, short, 'bhaiya' jaisa, thoda Hinglish"></div>
             <div class="field"><label for="setUpi">UPI id (payment lene ke liye)</label>
               <input id="setUpi" placeholder="koramangalaflowers@okhdfcbank"></div>
+            <div class="field"><label for="setQr">Payment QR (apne UPI app ka screenshot)</label>
+              <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
+                <img id="qrPreview" alt="" style="width:64px;height:64px;object-fit:contain;border:1px solid var(--line);border-radius:10px;display:none">
+                <input id="setQr" type="file" accept="image/png,image/jpeg,image/webp" style="width:auto">
+                <button class="btn ghost sm hidden" type="button" id="qrClear">Hatao</button>
+              </div>
+              <p class="muted" style="margin:6px 0 0;font-size:11px">
+                Customer "payment kaise karu?" likhega to AI ye QR seedha bhej dega.
+              </p>
+            </div>
             <div class="field"><label for="setInstructions">Extra instructions (optional)</label>
               <input id="setInstructions" placeholder="Bulk order par 10% off de sakte hain"></div>
             <div class="row">
@@ -685,6 +695,14 @@ async function loadSettings() {
   $('setDelivery').value = settings.shop_delivery || '';
   $('setTone').value = settings.shop_tone || '';
   $('setUpi').value = settings.shop_upi_id || '';
+  if (settings.paymentQr) {
+    $('qrPreview').src = settings.paymentQr;
+    $('qrPreview').style.display = 'block';
+    $('qrClear').classList.remove('hidden');
+  } else {
+    $('qrPreview').style.display = 'none';
+    $('qrClear').classList.add('hidden');
+  }
   $('setInstructions').value = settings.shop_instructions || '';
 }
 
@@ -703,6 +721,35 @@ $('setForm').onsubmit = async (e) => {
     toast('Shop profile save ho gaya ✅');
   } catch (err) { toast(err.message); }
   finally { $('setSubmit').disabled = false; }
+};
+
+$('setQr').onchange = async () => {
+  const file = $('setQr').files[0];
+  if (!file) return;
+  if (file.size > 400 * 1024) { toast('QR image 400 KB se choti honi chahiye'); $('setQr').value = ''; return; }
+  const dataUrl = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+  try {
+    const { settings } = await api('/api/shop?qr', { method: 'POST', body: JSON.stringify({ image: dataUrl }) });
+    $('qrPreview').src = settings.paymentQr;
+    $('qrPreview').style.display = 'block';
+    $('qrClear').classList.remove('hidden');
+    toast('Payment QR save ho gaya ✅');
+  } catch (err) { toast(err.message); }
+  finally { $('setQr').value = ''; }
+};
+
+$('qrClear').onclick = async () => {
+  try {
+    await api('/api/shop?qr', { method: 'POST', body: JSON.stringify({ image: '' }) });
+    $('qrPreview').style.display = 'none';
+    $('qrClear').classList.add('hidden');
+    toast('QR hata diya');
+  } catch (err) { toast(err.message); }
 };
 
 $('tryBtn').onclick = async () => {

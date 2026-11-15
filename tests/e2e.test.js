@@ -98,6 +98,7 @@ before(async () => {
     '/api/products': '../api/products.js',
     '/api/whatsapp': '../api/whatsapp.js',
     '/api/shop': '../api/shop.js',
+    '/api/qr': '../api/qr.js',
     
     '/api/admin': '../api/admin.js',
     '/api/payments': '../api/payments.js',
@@ -1216,6 +1217,112 @@ test('the AI asks for payment once the order details are known', async () => {
     assert.match(system, /koramangala@okhdfcbank/);
     assert.match(system, /never ask for card numbers, CVV, OTPs/);
   } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
+// -- payment QR ------------------------------------------------------------
+
+const QR_PNG = 'data:image/png;base64,' + 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
+
+test('a shop can upload a payment QR and it is served publicly under a token', async () => {
+  process.env.PUBLIC_BASE_URL = BASE;
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  // Not an image is refused.
+  const bad = await api('/api/shop?qr', {
+    method: 'POST', cookie: login.cookie, body: { image: 'data:text/plain;base64,aGk=' },
+  });
+  assert.equal(bad.status, 400);
+
+  const saved = await api('/api/shop?qr', {
+    method: 'POST', cookie: login.cookie, body: { image: QR_PNG },
+  });
+  assert.equal(saved.status, 200);
+  assert.match(saved.body.settings.paymentQr, /^http:\/\/[^/]+\/api\/qr\?t=[0-9a-f]{32}$/);
+  // The base64 blob must not be shipped to the browser.
+  assert.equal(saved.body.settings.shop_payment_qr, undefined);
+
+  const url = saved.body.settings.paymentQr;
+  const img = await fetch(url);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  const bytes = Buffer.from(await img.arrayBuffer());
+  assert.equal(bytes.toString('base64'), QR_PNG.split(',')[1], 'the exact uploaded bytes come back');
+
+  // A wrong token reveals nothing.
+  const wrong = await fetch(`${BASE}/api/qr?t=deadbeef`);
+  assert.equal(wrong.status, 404);
+
+  // Clearing removes it.
+  const cleared = await api('/api/shop?qr', {
+    method: 'POST', cookie: login.cookie, body: { image: '' },
+  });
+  assert.equal(cleared.body.settings.paymentQr, null);
+  const gone = await fetch(url);
+  assert.equal(gone.status, 404);
+});
+
+test('asking how to pay sends the shop QR and never spends an AI call', async () => {
+  process.env.PUBLIC_BASE_URL = BASE;
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await api('/api/shop?qr', { method: 'POST', cookie: login.cookie, body: { image: QR_PNG } });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  // An AI provider that would answer if it were ever called.
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'qr-key';
+
+  // Capture what the shop sends over WhatsApp without hitting the network.
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.SENT' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const payload = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550009999', text: 'payment kaise karu?', id: 'wamid.QR1',
+    });
+    const { raw, sig } = signedWebhook(payload);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+      body: raw,
+    });
+
+    assert.equal(sent.length, 1, 'one WhatsApp message is sent');
+    assert.equal(sent[0].type, 'image', 'and it is the QR image');
+    assert.match(sent[0].image.link, /\/api\/qr\?t=[0-9a-f]+$/);
+    assert.match(sent[0].image.caption, /scan/i);
+
+    assert.equal(fake.seen.length, 0, 'no AI provider was called for a payment question');
+
+    // The question and the answer are both on the thread.
+    const { rows } = await query(
+      "SELECT direction, body FROM messages WHERE body IN ('payment kaise karu?') OR direction = 'outbound' ORDER BY created_at DESC LIMIT 2",
+    );
+    assert.ok(rows.some((r) => r.direction === 'inbound'), 'the question is stored');
+    assert.ok(rows.some((r) => r.direction === 'outbound'), 'the answer is stored');
+  } finally {
+    globalThis.fetch = realFetch;
     process.env = saved;
     await new Promise((r) => fake.server.close(r));
   }

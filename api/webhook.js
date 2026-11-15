@@ -1,6 +1,11 @@
 import { query } from '../lib/db.js';
-import { verifyWebhookSignature, parseInboundMessages, sendWhatsAppText } from '../lib/whatsapp.js';
-import { createOrderFromMessage, recordOutboundMessage } from '../lib/orders.js';
+import {
+  verifyWebhookSignature, parseInboundMessages, sendWhatsAppText,
+  sendWhatsAppImage, wantsPaymentInfo, publicBaseUrl,
+} from '../lib/whatsapp.js';
+import {
+  createOrderFromMessage, recordOutboundMessage, recordInboundOnly, openAmountFor,
+} from '../lib/orders.js';
 import { handler, readRaw, json, error, requireMethod } from '../lib/http.js';
 
 // GET /api/webhook  — Meta's subscription handshake
@@ -63,7 +68,8 @@ export default handler(async (req, res) => {
 async function handleMessage(message) {
   const { rows: tenants } = await query(
     `SELECT id, status, wa_phone_number_id, wa_access_token, business_name,
-            shop_address, shop_hours, shop_delivery, shop_tone, shop_instructions, shop_upi_id
+            shop_address, shop_hours, shop_delivery, shop_tone, shop_instructions,
+            shop_upi_id, shop_payment_qr_token
        FROM tenants WHERE wa_phone_number_id = $1`,
     [message.phoneNumberId],
   );
@@ -94,6 +100,52 @@ async function handleMessage(message) {
   );
 
   if (!message.text) return;
+
+  // Payment shortcut. A shop owner wants "payment kaise karu?" answered with
+  // their own QR, every time, without spending an AI call on it. Only when a
+  // QR is actually uploaded — otherwise fall through to the normal reply.
+  const qrUrl = tenant.shop_payment_qr_token && publicBaseUrl()
+    ? `${publicBaseUrl()}/api/qr?t=${tenant.shop_payment_qr_token}`
+    : null;
+  if (qrUrl && wantsPaymentInfo(message.text)) {
+    const turn = await recordInboundOnly({ tenant, message });
+    if (!turn) return; // duplicate delivery
+
+    const cents = await openAmountFor(tenant.id, turn.customerId);
+    const caption = cents
+      ? `Scan karke ₹${(cents / 100).toFixed(0)} pay kar dijiye 🙏`
+      : 'Payment ke liye ye QR scan kijiye 🙏';
+
+    if (tenant.wa_access_token) {
+      try {
+        await sendWhatsAppImage({
+          phoneNumberId: tenant.wa_phone_number_id,
+          accessToken: tenant.wa_access_token,
+          to: message.from,
+          link: qrUrl,
+          caption,
+        });
+      } catch (err) {
+        // A WhatsApp hiccup must not lose the fact the shop answered.
+        console.error('Failed to send payment QR', err.message);
+        if (tenant.shop_upi_id) {
+          await sendWhatsAppText({
+            phoneNumberId: tenant.wa_phone_number_id,
+            accessToken: tenant.wa_access_token,
+            to: message.from,
+            body: `${caption} UPI: ${tenant.shop_upi_id}`,
+          }).catch(() => {});
+        }
+      }
+    }
+    await recordOutboundMessage({
+      tenantId: tenant.id,
+      customerId: turn.customerId,
+      orderId: null,
+      body: caption,
+    });
+    return;
+  }
 
   const result = await createOrderFromMessage({ tenant, message });
   if (!result) return; // duplicate delivery

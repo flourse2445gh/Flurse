@@ -2,6 +2,13 @@ import { query } from '../lib/db.js';
 import { requireSession, assertTenantWritable } from '../lib/auth.js';
 import { draftReply, availableProviders, parseOrder } from '../lib/ai.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
+import { publicBaseUrl } from '../lib/whatsapp.js';
+import crypto from 'node:crypto';
+
+// A payment QR is a small picture. 600 KB of base64 is far more than a UPI QR
+// needs and keeps a stray upload from bloating the tenant row.
+const QR_MAX_CHARS = 600_000;
+const QR_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 // The shop profile the AI speaks in: address, hours, delivery promise and the
 // voice to write in. These are what make a reply sound like the shop owner
@@ -15,11 +22,23 @@ const FIELDS = [
   'shop_upi_id',
 ];
 
-const SELECT = `business_name, owner_phone, ${FIELDS.join(', ')}`;
+const SELECT = `business_name, owner_phone, shop_payment_qr_token, ${FIELDS.join(', ')}`;
+
+// The QR is stored as a data URL, but the dashboard only needs the public link
+// WhatsApp will fetch. Never ship the whole base64 blob to the browser.
+function withQrUrl(settings) {
+  if (!settings) return settings;
+  const { shop_payment_qr_token: token, ...rest } = settings;
+  const base = publicBaseUrl();
+  return {
+    ...rest,
+    paymentQr: token && base ? `${base}/api/qr?t=${token}` : null,
+  };
+}
 
 async function getSettings(res, session) {
   const { rows } = await query(`SELECT ${SELECT} FROM tenants WHERE id = $1`, [session.tenant_id]);
-  json(res, 200, { settings: rows[0] });
+  json(res, 200, { settings: withQrUrl(rows[0]) });
 }
 
 async function saveSettings(req, res, session) {
@@ -41,7 +60,42 @@ async function saveSettings(req, res, session) {
     `UPDATE tenants SET ${assignments} WHERE id = $1 RETURNING ${SELECT}`,
     [session.tenant_id, ...columns.map((c) => updates[c])],
   );
-  json(res, 200, { settings: rows[0] });
+  json(res, 200, { settings: withQrUrl(rows[0]) });
+}
+
+// The shop owner uploads their own payment QR (a screenshot from their UPI
+// app). Stored as a data URL, served publicly under an unguessable token so
+// WhatsApp can fetch it when the AI sends it to a customer.
+async function saveQr(req, res, session) {
+  assertTenantWritable({ status: session.status });
+  const { image } = await readJson(req);
+  const dataUrl = String(image ?? '').trim();
+
+  if (!dataUrl) {
+    const { rows } = await query(
+      `UPDATE tenants SET shop_payment_qr = NULL, shop_payment_qr_token = NULL
+        WHERE id = $1 RETURNING ${SELECT}`,
+      [session.tenant_id],
+    );
+    json(res, 200, { settings: withQrUrl(rows[0]) });
+    return;
+  }
+
+  const match = dataUrl.match(/^data:(image\/[a-z+.-]+);base64,/i);
+  if (!match || !QR_TYPES.includes(match[1].toLowerCase())) {
+    throw new HttpError(400, 'Upload a PNG, JPEG or WebP image');
+  }
+  if (dataUrl.length > QR_MAX_CHARS) {
+    throw new HttpError(400, 'That image is too large — keep the QR under 400 KB');
+  }
+
+  const token = crypto.randomBytes(16).toString('hex');
+  const { rows } = await query(
+    `UPDATE tenants SET shop_payment_qr = $2, shop_payment_qr_token = $3
+      WHERE id = $1 RETURNING ${SELECT}`,
+    [session.tenant_id, dataUrl, token],
+  );
+  json(res, 200, { settings: withQrUrl(rows[0]) });
 }
 
 // Runs the exact reply path the webhook uses, so a shop owner can see how the
@@ -103,6 +157,12 @@ export default handler(async (req, res) => {
   if (req.url?.includes('preview')) {
     if (!requireMethod(req, res, ['POST'])) return;
     await previewReply(req, res, session);
+    return;
+  }
+
+  if (req.url?.includes('qr')) {
+    if (!requireMethod(req, res, ['POST'])) return;
+    await saveQr(req, res, session);
     return;
   }
 
