@@ -410,18 +410,25 @@ test('upgrading reactivates a suspended tenant', async () => {
 
   const plans = await api('/api/payments', { cookie: login.cookie });
   assert.equal(plans.status, 200);
-  // Two plans are sold and the landing page advertises exactly these prices.
+  // Four plans are sold and the landing page advertises exactly these prices.
   // A plan here that the page does not show would be a dead entry again.
-  assert.deepEqual(plans.body.plans.map((p) => p.id), ['starter', 'yearly']);
-  assert.equal(plans.body.plans[0].priceCents, 99900);
-  assert.equal(plans.body.plans[1].priceCents, 999900);
+  assert.deepEqual(
+    plans.body.plans.map((p) => p.id),
+    ['starter_monthly', 'pro_monthly', 'starter_yearly', 'pro_yearly'],
+  );
+  assert.deepEqual(plans.body.plans.map((p) => p.priceCents), [99900, 199900, 999900, 1999900]);
   assert.equal(plans.body.plans[0].aiReplies, 2000, 'fair use is advertised');
-  // The yearly plan is two months free: 12 × 999 = 11,988, so 9,999 is a saving.
-  assert.ok(plans.body.plans[1].priceCents < plans.body.plans[0].priceCents * 12);
+  assert.equal(plans.body.plans[1].aiReplies, 10000, 'Pro carries a bigger allowance');
+  // Yearly is two months free: 12 × monthly must exceed the yearly price.
+  assert.ok(plans.body.plans[2].priceCents < plans.body.plans[0].priceCents * 12);
+  assert.ok(plans.body.plans[3].priceCents < plans.body.plans[1].priceCents * 12);
+  // Only the monthly plans can be charged again by Razorpay.
+  assert.deepEqual(plans.body.plans.filter((p) => p.recurring).map((p) => p.id),
+    ['starter_monthly', 'pro_monthly']);
 
   const upgrade = await api('/api/payments?action=upgrade', {
     method: 'POST',
-    body: { plan: 'starter' },
+    body: { plan: 'starter_monthly' },
     cookie: login.cookie,
   });
   assert.equal(upgrade.status, 200);
@@ -1434,7 +1441,7 @@ test('checkout is refused until Razorpay keys exist, then creates an order', asy
   });
 
   const before = await api('/api/payments?action=checkout', {
-    method: 'POST', cookie: login.cookie, body: { plan: 'starter' },
+    method: 'POST', cookie: login.cookie, body: { plan: 'starter_monthly' },
   });
   assert.equal(before.status, 503, 'no keys, no checkout');
   assert.equal(before.body.error, 'Payments are not configured yet');
@@ -1456,7 +1463,7 @@ test('checkout is refused until Razorpay keys exist, then creates an order', asy
 
   try {
     const checkout = await api('/api/payments?action=checkout', {
-      method: 'POST', cookie: login.cookie, body: { plan: 'starter' },
+      method: 'POST', cookie: login.cookie, body: { plan: 'starter_monthly' },
     });
     assert.equal(checkout.status, 200);
     assert.equal(checkout.body.orderId, 'order_E2E1');
@@ -1482,7 +1489,7 @@ test('a tampered payment cannot activate a shop, a signed one can', async () => 
   );
   await query(
     `INSERT INTO payments (tenant_id, plan, amount_cents, razorpay_order_id)
-     SELECT id, 'starter', 99900, 'order_E2E2' FROM tenants WHERE slug = 'test-cafe'`,
+     SELECT id, 'starter_monthly', 99900, 'order_E2E2' FROM tenants WHERE slug = 'test-cafe'`,
   );
 
   const saved = { ...process.env };
@@ -1544,7 +1551,7 @@ test('the webhook activates a shop only when Razorpay confirms the payment', asy
   );
   await query(
     `INSERT INTO payments (tenant_id, plan, amount_cents, razorpay_order_id)
-     SELECT id, 'starter', 99900, 'order_E2E3' FROM tenants WHERE slug = 'test-cafe'`,
+     SELECT id, 'starter_monthly', 99900, 'order_E2E3' FROM tenants WHERE slug = 'test-cafe'`,
   );
 
   const saved = { ...process.env };
@@ -1595,7 +1602,7 @@ test('the webhook activates a shop only when Razorpay confirms the payment', asy
 
     const tenant = await query("SELECT status, plan, paid_until FROM tenants WHERE slug = 'test-cafe'");
     assert.equal(tenant.rows[0].status, 'active');
-    assert.equal(tenant.rows[0].plan, 'starter');
+    assert.equal(tenant.rows[0].plan, 'starter_monthly');
     assert.ok(tenant.rows[0].paid_until, 'the paid period is set');
 
     // A payment that is not captured yet is ignored.
@@ -1626,7 +1633,7 @@ test('the webhook activates a shop only when Razorpay confirms the payment', asy
 
 test('a lapsed paid period is suspended by the cron, a live one is not', async () => {
   await query(
-    `UPDATE tenants SET status = 'active', plan = 'starter',
+    `UPDATE tenants SET status = 'active', plan = 'starter_monthly',
        paid_until = now() + interval '5 days' WHERE slug = 'test-cafe'`,
   );
   const kept = await expireTrials();
@@ -1674,7 +1681,7 @@ test('subscribe opens a monthly mandate and records it against the shop', async 
 
   try {
     const res = await api('/api/payments?action=subscribe', {
-      method: 'POST', cookie: login.cookie, body: { plan: 'starter' },
+      method: 'POST', cookie: login.cookie, body: { plan: 'starter_monthly' },
     });
     assert.equal(res.status, 200);
     assert.equal(res.body.subscriptionId, 'sub_E2E1');
@@ -1904,7 +1911,7 @@ test('the yearly plan is a one-time payment that buys a year', async () => {
       body: { email: 'owner@test.cafe', password: 'supersecret123' },
     });
     const checkout = await api('/api/payments?action=checkout', {
-      method: 'POST', cookie: login.cookie, body: { plan: 'yearly' },
+      method: 'POST', cookie: login.cookie, body: { plan: 'starter_yearly' },
     });
     assert.equal(checkout.status, 200);
     assert.equal(sentBody.amount, 999900, 'the year is charged in paise');
@@ -1919,7 +1926,7 @@ test('the yearly plan is a one-time payment that buys a year', async () => {
     assert.equal(ok.status, 200);
     const tenant = await query("SELECT status, plan, paid_until FROM tenants WHERE slug = 'test-cafe'");
     assert.equal(tenant.rows[0].status, 'active');
-    assert.equal(tenant.rows[0].plan, 'yearly');
+    assert.equal(tenant.rows[0].plan, 'starter_yearly');
     const days = (new Date(tenant.rows[0].paid_until).getTime() - Date.now()) / 86400000;
     assert.ok(days > 360, `a year is paid for (got ${Math.round(days)} days)`);
   } finally {
@@ -1938,7 +1945,7 @@ test('the yearly plan cannot be opened as a monthly subscription', async () => {
       body: { email: 'owner@test.cafe', password: 'supersecret123' },
     });
     const res = await api('/api/payments?action=subscribe', {
-      method: 'POST', cookie: login.cookie, body: { plan: 'yearly' },
+      method: 'POST', cookie: login.cookie, body: { plan: 'starter_yearly' },
     });
     assert.equal(res.status, 400, 'a yearly plan is not recurring');
   } finally {
@@ -1946,9 +1953,53 @@ test('the yearly plan cannot be opened as a monthly subscription', async () => {
   }
 });
 
+test('Pro buys a bigger AI allowance than Starter', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', plan = 'pro_monthly', paid_until = now() + interval '20 days' WHERE slug = 'test-cafe'",
+  );
+  const { createOrderFromMessage } = await import('../lib/orders.js');
+  const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+  const tenant = t[0];
+  const { rows: cust } = await query(
+    'SELECT id FROM customers WHERE tenant_id = $1 LIMIT 1', [tenant.id],
+  );
+
+  // Spend Starter's whole allowance (2,000). Pro allows 10,000, so a Pro shop
+  // is still inside its plan and a model may be used.
+  await query('DELETE FROM messages WHERE tenant_id = $1', [tenant.id]);
+  await query(
+    `INSERT INTO messages (tenant_id, customer_id, direction, body, ai_reply)
+     SELECT $1, $2, 'inbound', 'x', true FROM generate_series(1, 2000)`,
+    [tenant.id, cust[0].id],
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GEMINI_BASE_URL = `http://127.0.0.1:${fake.server.address().port}`;
+  process.env.GEMINI_API_KEY = 'pro-key';
+  try {
+    const result = await createOrderFromMessage({
+      tenant,
+      message: { from: '919999900002', displayName: 'Pro Shop', text: '2 red roses chahiye', waMessageId: 'wam_pro_1' },
+    });
+    assert.ok(result, 'the shop answers');
+    assert.ok(fake.seen.length, 'a Pro shop still gets the model after 2,000 replies');
+
+    // The turn is stamped, so it counts against Pro's larger allowance.
+    const { rows: usage } = await query(
+      "SELECT ai_reply FROM messages WHERE wa_message_id = 'wam_pro_1'",
+    );
+    assert.equal(usage[0].ai_reply, true, 'a Pro turn inside the allowance is billed as AI');
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
 test('past the monthly AI allowance the shop still replies, without a model', async () => {
   await query(
-    "UPDATE tenants SET status = 'active', plan = 'starter', paid_until = now() + interval '20 days' WHERE slug = 'test-cafe'",
+    "UPDATE tenants SET status = 'active', plan = 'starter_monthly', paid_until = now() + interval '20 days' WHERE slug = 'test-cafe'",
   );
   const { createOrderFromMessage } = await import('../lib/orders.js');
   const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");

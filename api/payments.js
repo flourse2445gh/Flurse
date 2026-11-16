@@ -5,7 +5,7 @@ import {
   razorpayConfigured, createRazorpayOrder, verifyCheckoutSignature, fetchPayment,
   ensureMonthlyPlan, createSubscription, fetchSubscription,
 } from '../lib/razorpay.js';
-import { PLANS, planList } from '../lib/plans.js';
+import { PLANS, planList, DEFAULT_PLAN } from '../lib/plans.js';
 
 // Lifts the suspension and extends the paid period by the plan's length,
 // counting from whichever is later: now, or the period already paid for. A
@@ -198,14 +198,14 @@ export default handler(async (req, res) => {
 
     // Fair-use counter: how many AI replies this shop has used this month. The
     // plan decides the allowance; a shop with no plan yet gets the starter one.
-    const planId = session.plan ?? 'starter';
+    const planId = session.plan ?? DEFAULT_PLAN;
     const { rows: usageRows } = await query(
       `SELECT COUNT(*)::int AS n FROM messages
         WHERE tenant_id = $1 AND direction = 'inbound' AND ai_reply
           AND created_at >= date_trunc('month', now())`,
       [session.tenant_id],
     );
-    const allowance = PLANS[planId]?.aiReplies ?? PLANS.starter.aiReplies;
+    const allowance = PLANS[planId]?.aiReplies ?? PLANS[DEFAULT_PLAN].aiReplies;
 
     json(res, 200, {
       plans: planList(),
