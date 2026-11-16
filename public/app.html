@@ -167,10 +167,25 @@
         <div class="card">
           <h3>Connect your WhatsApp number</h3>
           <p class="muted" style="margin:6px 0 16px">
-            Meta WhatsApp Cloud API se apna <b>Phone number ID</b> aur <b>Access token</b> yahan daalo.
-            Iske baad har customer message ka auto-reply chalu ho jayega.
+            Ek click me apna number jodo — bas Facebook se login karo, number chuno, ho gaya.
+            Har customer message ka auto-reply turant chalu ho jayega.
           </p>
-          <form id="waForm" class="stack">
+
+          <div id="waEsBox" class="hidden" style="margin-bottom:16px">
+            <button class="btn block" type="button" id="waEsStart"
+                    style="background:#1877f2;font-weight:700;padding:12px">
+              Connect with Facebook
+            </button>
+            <p class="muted" style="margin:8px 0 0;font-size:11.5px" id="waEsNote">
+              Secure Meta popup — aapka token kahin copy nahi karna padega.
+            </p>
+          </div>
+
+          <details id="waManual" class="hidden">
+            <summary class="muted" style="cursor:pointer;font-size:12.5px">
+              Ya phir Phone number ID aur token haath se daalo
+            </summary>
+          <form id="waForm" class="stack" style="margin-top:12px">
             <div class="field"><label for="waPhone">Phone number ID</label><input id="waPhone" placeholder="123456789012345" required></div>
             <div class="field"><label for="waToken">Access token</label><input id="waToken" type="password" placeholder="EAAG…" required autocomplete="off"></div>
             <div class="error" id="waError"></div>
@@ -178,6 +193,7 @@
               <button class="btn wa" type="submit" id="waSubmit">Save &amp; connect</button>
             </div>
           </form>
+          </details>
 
           <div class="divider"></div>
 
@@ -644,11 +660,23 @@ async function loadWhatsApp() {
   state.wa = wa;
   $('waWebhook').value = `${location.origin}${wa.webhookPath}`;
   $('waVerify').value = wa.verifyToken || '(shop banao ke baad milega)';
+
+  // One-click signup only makes sense once the operator has configured the Meta
+  // app. Until then the hand-paste form is the only way in, so it stays open.
+  const es = wa.embeddedSignup || {};
+  $('waEsBox').classList.toggle('hidden', !es.available);
+  $('waManual').classList.toggle('hidden', Boolean(es.available));
+  if (es.available) {
+    $('waManual').open = false;
+    setupEmbeddedSignup(es);
+  }
+
+  const shown = wa.displayNumber || wa.phoneNumberId;
   $('waStatus').innerHTML = wa.connected
     ? `<span class="pill active"><span class="dot"></span>Connected</span>
-       <p class="muted" style="margin-top:10px">Phone number ID: <b>${escapeHtml(wa.phoneNumberId)}</b><br>API: ${escapeHtml(wa.apiVersion)}</p>`
+       <p class="muted" style="margin-top:10px">Number: <b>${escapeHtml(shown)}</b><br>API: ${escapeHtml(wa.apiVersion)}</p>`
     : `<span class="pill qr_pending"><span class="dot"></span>Not connected</span>
-       <p class="muted" style="margin-top:10px">Abhi koi WhatsApp number juda nahi hai. Left side form bharo.</p>`;
+       <p class="muted" style="margin-top:10px">Abhi koi WhatsApp number juda nahi hai. Left side se connect karo.</p>`;
   $('waDisconnect').disabled = !wa.connected;
   renderWaChip();
 }
@@ -689,6 +717,85 @@ $('waDisconnect').onclick = async () => {
 
 $('waCopy').onclick = () => { navigator.clipboard.writeText($('waWebhook').value); toast('Webhook URL copy ho gaya'); };
 $('waCopyVerify').onclick = () => { navigator.clipboard.writeText($('waVerify').value); toast('Verify token copy ho gaya'); };
+
+// ---- Embedded Signup ------------------------------------------------------
+// Meta returns the ids of the assets the owner just picked in a window message,
+// and the exchangeable code in the FB.login callback. Both are collected here
+// and posted to the server together, because the code lives only 30 seconds.
+let esState = { config: null, ids: null, cancelled: false };
+
+function setupEmbeddedSignup(config) {
+  esState.config = config;
+  loadFacebookSdk(config);
+}
+
+function loadFacebookSdk(config) {
+  if (window.__bbFbSdkLoading) return;
+  window.__bbFbSdkLoading = true;
+  window.fbAsyncInit = () => {
+    FB.init({ appId: config.appId, autoLogAppEvents: true, xfbml: true, version: config.apiVersion });
+    $('waEsStart').onclick = launchEmbeddedSignup;
+  };
+  const s = document.createElement('script');
+  s.async = true;
+  s.defer = true;
+  s.crossOrigin = 'anonymous';
+  s.src = 'https://connect.facebook.net/en_US/sdk.js';
+  document.body.appendChild(s);
+}
+
+// The popup posts the asset ids before the login callback fires, so the message
+// listener just parks them until the code arrives.
+window.addEventListener('message', (event) => {
+  if (!String(event.origin).endsWith('facebook.com')) return;
+  let data;
+  try { data = JSON.parse(event.data); } catch { return; }
+  if (data.type !== 'WA_EMBEDDED_SIGNUP') return;
+  if (data.event === 'CANCEL') { esState.ids = null; esState.cancelled = true; return; }
+  esState.ids = data.data || null;
+});
+
+async function launchEmbeddedSignup() {
+  if (!window.FB) { toast('Facebook SDK load nahi hua — dobara koshish karo'); return; }
+  esState.ids = null;
+  esState.cancelled = false;
+  const note = $('waEsNote');
+  const prev = note.textContent;
+  note.textContent = 'Facebook popup khul raha hai…';
+  try {
+    const code = await new Promise((resolve, reject) => {
+      FB.login((response) => {
+        if (response.authResponse && response.authResponse.code) resolve(response.authResponse.code);
+        else reject(new Error(esState.cancelled ? 'Aapne connect karna band kar diya' : 'Signup poora nahi hua'));
+      }, {
+        config_id: esState.config.configId,
+        response_type: 'code',
+        override_default_response_type: true,
+        extras: { setup: {} },
+      });
+    });
+    await finishEmbeddedSignup(code);
+    note.textContent = prev;
+  } catch (err) {
+    note.textContent = prev;
+    toast(err.message);
+  }
+}
+
+async function finishEmbeddedSignup(code) {
+  const ids = esState.ids || {};
+  const phoneNumberId = ids.phone_number_id || ids.phoneNumberId;
+  if (!phoneNumberId) {
+    throw new Error('Number ka ID nahi mila — popup me number select karke Finish dabao');
+  }
+  $('waEsNote').textContent = 'Number connect ho raha hai…';
+  await api('/api/whatsapp?action=embedded-signup', {
+    method: 'POST',
+    body: JSON.stringify({ code, phone_number_id: phoneNumberId, waba_id: ids.waba_id || null }),
+  });
+  await loadWhatsApp();
+  toast('WhatsApp connect ho gaya ✅');
+}
 
 // ---- shop profile --------------------------------------------------------
 async function loadSettings() {

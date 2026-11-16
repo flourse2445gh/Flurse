@@ -71,6 +71,9 @@ tests/e2e.test.js       end-to-end tests against a real Postgres
    `budsbox_test` on localhost).
 5. **WhatsApp** — point the Meta app webhook at `https://<domain>/api/webhook`
    and use `WHATSAPP_VERIFY_TOKEN` as the verify token.
+6. **Embedded Signup** (optional) — set `WHATSAPP_APP_ID` and
+   `WHATSAPP_ES_CONFIG_ID` from the Meta app, and shops can connect their
+   number with one click instead of pasting ids by hand. See below.
 
 ## Key environment variables
 
@@ -82,6 +85,8 @@ tests/e2e.test.js       end-to-end tests against a real Postgres
 | `WHATSAPP_VERIFY_TOKEN` | Meta webhook verification |
 | `WHATSAPP_APP_SECRET` | verifies inbound webhook signatures |
 | `WHATSAPP_ACCESS_TOKEN` | sends replies via the Cloud API |
+| `WHATSAPP_APP_ID` | Embedded Signup app id (public) |
+| `WHATSAPP_ES_CONFIG_ID` | Embedded Signup configuration id (public) |
 | `OPENAI_API_KEY` | AI order parsing (falls back to the catalog parser) |
 | `TRIAL_DAYS` | trial length, default `14` |
 | `CRON_SECRET` | protects the trial cron |
@@ -92,5 +97,9 @@ tests/e2e.test.js       end-to-end tests against a real Postgres
 - Every dashboard query is scoped by the session's `tenant_id`, so one shop can
   never read or mutate another's orders.
 - Sessions are `HttpOnly` cookies holding a random token; only its hash is stored.
+- Embedded Signup: the browser only ever holds the short-lived `code` and the
+  asset ids Meta returns. The exchange, the WABA subscription and the phone
+  number lookup all run server-side, so the shop's access token never reaches
+  the page.
 - Payment upgrade is stubbed and captures nothing — wire a real PSP before
   taking money.

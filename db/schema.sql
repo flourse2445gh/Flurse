@@ -228,6 +228,12 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_note   TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_name  TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_phone TEXT;
 
+-- Embedded Signup wiring. The WABA id is what the app subscribes to so webhooks
+-- arrive, and the display number is shown back to the owner so they can confirm
+-- the right number got connected.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_waba_id        TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_display_number TEXT;
+
 -- Payment. A florist takes the money before the flowers leave, so an order is
 -- not done until it is paid. `unpaid` is the only non-terminal state; the shop
 -- owner marks `paid` or `refunded` by hand after seeing the transfer land.
