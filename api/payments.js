@@ -5,10 +5,7 @@ import {
   razorpayConfigured, createRazorpayOrder, verifyCheckoutSignature, fetchPayment,
   ensureMonthlyPlan, createSubscription, fetchSubscription,
 } from '../lib/razorpay.js';
-
-const PLANS = {
-  starter: { name: 'Pro Monthly', priceCents: 59900, currency: 'INR', days: 30 },
-};
+import { PLANS, planList } from '../lib/plans.js';
 
 // Lifts the suspension and extends the paid period by the plan's length,
 // counting from whichever is later: now, or the period already paid for. A
@@ -198,13 +195,26 @@ export default handler(async (req, res) => {
       [session.tenant_id],
     );
     const sub = subRows[0] ?? null;
+
+    // Fair-use counter: how many AI replies this shop has used this month. The
+    // plan decides the allowance; a shop with no plan yet gets the starter one.
+    const planId = session.plan ?? 'starter';
+    const { rows: usageRows } = await query(
+      `SELECT COUNT(*)::int AS n FROM messages
+        WHERE tenant_id = $1 AND direction = 'inbound' AND ai_reply
+          AND created_at >= date_trunc('month', now())`,
+      [session.tenant_id],
+    );
+    const allowance = PLANS[planId]?.aiReplies ?? PLANS.starter.aiReplies;
+
     json(res, 200, {
-      plans: Object.entries(PLANS).map(([id, p]) => ({ id, ...p })),
+      plans: planList(),
       current: {
         status: session.status,
         trialEndsAt: session.trial_ends_at,
         plan: session.plan ?? null,
         paidUntil: session.paid_until ?? null,
+        usage: { aiReplies: usageRows[0]?.n ?? 0, allowance },
         autoRenew: sub && sub.status === 'active'
           ? { subscriptionId: sub.razorpay_subscription_id, currentEnd: sub.current_end }
           : null,
@@ -254,6 +264,7 @@ export default handler(async (req, res) => {
     const { plan: planId } = await readJson(req);
     const plan = PLANS[planId];
     if (!plan) throw new HttpError(400, `plan must be one of: ${Object.keys(PLANS).join(', ')}`);
+    if (!plan.recurring) throw new HttpError(400, 'This plan is a one-time payment, not a subscription');
     if (!razorpayConfigured()) throw new HttpError(503, 'Payments are not configured yet');
 
     const rzpPlanId = await ensureMonthlyPlan({ amountCents: plan.priceCents, name: 'BudsBox Pro' });

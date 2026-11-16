@@ -3,7 +3,8 @@
 Multi-tenant WhatsApp ordering SaaS. One platform, many shops. Each shop
 connects its own Meta WhatsApp Cloud API number; BudsBox turns inbound
 messages into orders and shows them in a dashboard. 14-day trial, then
-₹599/month.
+₹999/month or ₹9,999/year. Every plan carries a fair-use allowance of 2,000
+AI replies per month.
 
 ## Layout
 
@@ -140,6 +141,22 @@ messages into orders and shows them in a dashboard. 14-day trial, then
   clears the access token, same as a trial expiry, so a dead mandate cannot keep
   serving free. The browser flow returns `subscriptionId`, which goes to
   Razorpay checkout as `subscription_id` (not `order_id`).
+- **Plans live in `lib/plans.js`.** One place holds the price, the period and
+  the fair-use allowance, so the checkout, the dashboard and the usage counter
+  cannot drift apart. `starter` (Pro Monthly, ₹999, 30 days) is `recurring`, so
+  it is the only plan `action=subscribe` accepts; `yearly` (Pro Yearly, ₹9,999,
+  365 days, two months free) is a one-time `action=checkout`. A plan that is not
+  `recurring` is refused with 400, which keeps a yearly purchase from silently
+  becoming a monthly mandate.
+- **Fair use caps AI spend without ever silencing a shop.** Each plan includes
+  `aiReplies` (2,000) model-written replies a month. `messages.ai_reply` marks
+  only the turns where a model actually wrote the reply — a greeting or a
+  payment-QR answer is free and never counts. `createOrderFromMessage()` counts
+  the month's stamped turns and passes `aiAllowed` down to `parseOrder()` and
+  `draftReply()`; past the allowance both fall back to the deterministic
+  keyword matcher. The shop keeps replying to every customer, the number never
+  goes quiet, and the cost of a heavy shop stays bounded and known. The
+  dashboard shows the running count (`AI replies used/allowance`).
 - **Payment is manual and required before fulfilment.** Orders default to
   `payment_status = 'unpaid'`. The owner marks `paid` (or `refunded`) from the
   dashboard after the UPI transfer lands; `POST /api/dashboard?order_id=..&payment=1`

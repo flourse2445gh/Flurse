@@ -76,7 +76,8 @@
       <div class="row">
         <button id="waChip" class="pill hidden" type="button" style="border:none;cursor:pointer;font:inherit" title="WhatsApp connection"></button>
         <span id="trialChip" class="pill trialing hidden"></span>
-        <button id="payBtn" class="btn sm">Pay ₹599</button>
+        <span id="usageChip" class="pill hidden" title="AI replies used this month"></span>
+        <button id="payBtn" class="btn sm">Upgrade</button>
         <button id="logoutBtn" class="btn ghost sm">Log out</button>
       </div>
     </div>
@@ -297,8 +298,16 @@
     </div>
     <div style="padding:20px">
       <p class="muted" id="payShop">—</p>
-      <div style="font-size:30px;font-weight:800;margin-top:4px">₹599<span style="font-size:13px;font-weight:500;color:var(--ink-30)">.00</span></div>
-      <p class="muted" style="margin:2px 0 16px">Pro Monthly · 30 din extension</p>
+      <div class="stack" style="margin-bottom:16px">
+        <label class="row" style="border:2px solid rgba(37,211,102,.5);background:rgba(37,211,102,.06);border-radius:12px;padding:12px 14px;cursor:pointer;align-items:flex-start">
+          <input type="radio" name="pl" value="starter" checked style="width:auto;margin-top:3px">
+          <span><b>Monthly</b> · ₹999<span class="muted" style="font-size:11px;display:block">Har 30 din · 2,000 AI replies/mahine</span></span>
+        </label>
+        <label class="row" style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;align-items:flex-start">
+          <input type="radio" name="pl" value="yearly" style="width:auto;margin-top:3px">
+          <span><b>Yearly</b> · ₹9,999<span class="muted" style="font-size:11px;display:block">365 din · 2 mahine free · 2,000 AI replies/mahine</span></span>
+        </label>
+      </div>
       <div class="stack">
         <label class="row" style="border:2px solid rgba(37,211,102,.4);background:rgba(37,211,102,.06);border-radius:12px;padding:12px 14px;cursor:pointer">
           <input type="radio" name="pm" checked style="width:auto"> <span>📱 UPI · GPay · PhonePe</span>
@@ -307,9 +316,9 @@
           <input type="radio" name="pm" style="width:auto"> <span>💳 Card · Visa · RuPay</span>
         </label>
       </div>
-      <button id="payDo" class="btn block" style="background:#3395ff;margin-top:18px">Pay ₹599</button>
-      <button id="payAuto" class="btn block ghost" style="margin-top:8px">Auto-pay har mahine · ₹599</button>
-      <p class="muted center" style="margin:12px 0 0;font-size:10.5px" id="payNote">🔒 Razorpay secure checkout</p>
+      <button id="payDo" class="btn block" style="background:#3395ff;margin-top:18px">Pay ₹999</button>
+      <button id="payAuto" class="btn block ghost" style="margin-top:8px">Auto-pay har mahine · ₹999</button>
+      <p class="muted center" style="margin:12px 0 0;font-size:10.5px" id="payNote">Fair use: 2,000 AI replies/mahine. Uske baad bhi reply aayega, sirf AI off ho jayega.</p>
     </div>
   </div>
 </div>
@@ -392,6 +401,22 @@ function renderTenant(tenant) {
     chip.classList.remove('hidden');
   }
   renderBanner(tenant);
+  renderUsage();
+}
+
+// Shows how much of the month's AI allowance is left, so the owner can see the
+// limit before they hit it rather than after.
+async function renderUsage() {
+  const chip = $('usageChip');
+  try {
+    const data = await api('/api/payments');
+    const u = data.current?.usage;
+    if (!u || !u.allowance) { chip.classList.add('hidden'); return; }
+    const left = Math.max(0, u.allowance - u.aiReplies);
+    chip.textContent = `AI replies ${u.aiReplies}/${u.allowance}`;
+    chip.className = 'pill ' + (left > 0 ? 'active' : 'pending');
+    chip.classList.remove('hidden');
+  } catch { chip.classList.add('hidden'); }
 }
 
 function renderBanner(tenant) {
@@ -399,8 +424,8 @@ function renderBanner(tenant) {
   if (tenant.status === 'trialing') {
     const t = trialLeft(tenant.trialEndsAt);
     el.className = 'banner trial';
-    el.innerHTML = `⏳ <b>Aapka free trial ${escapeHtml(t.text)} me khatam.</b> ₹599 pay karke 30 din aur chalu rakho.
-      <button class="btn sm" onclick="openPay()">Pay ₹599 to continue</button>`;
+    el.innerHTML = `⏳ <b>Aapka free trial ${escapeHtml(t.text)} me khatam.</b> Monthly ₹999 ya Yearly ₹9,999 me upgrade karo.
+      <button class="btn sm" onclick="openPay()">Upgrade</button>`;
   } else if (tenant.status === 'suspended' || tenant.status === 'cancelled') {
     el.className = 'banner locked';
     el.innerHTML = `🔒 <b>Trial khatam.</b> WhatsApp number disconnect hai aur orders ruk gaye hain.
@@ -899,12 +924,17 @@ function openPay() {
 $('payClose').onclick = () => $('payModal').classList.add('hidden');
 $('payBtn').onclick = openPay;
 
+function selectedPlan() {
+  return document.querySelector('input[name="pl"]:checked')?.value ?? 'starter';
+}
+
 $('payDo').onclick = async () => {
   const btn = $('payDo');
+  const plan = selectedPlan();
   btn.disabled = true; btn.textContent = 'Processing…';
   try {
     const order = await api('/api/payments?action=checkout', {
-      method: 'POST', body: JSON.stringify({ plan: 'starter' }),
+      method: 'POST', body: JSON.stringify({ plan }),
     });
 
     // No keys configured: fall back to the local stub so the dashboard still
@@ -934,10 +964,10 @@ $('payDo').onclick = async () => {
     });
 
     $('payModal').classList.add('hidden');
-    toast('Payment ho gaya! 30 din extend 🎉');
+    toast('Payment ho gaya! Sab chalu 🎉');
     await enterApp();
   } catch (err) { toast(err.message); }
-  finally { btn.disabled = false; btn.textContent = 'Pay ₹599'; }
+  finally { btn.disabled = false; btn.textContent = 'Pay ₹999'; }
 };
 
 // Auto-renewal: the owner approves a mandate once and Razorpay charges monthly.
@@ -966,10 +996,10 @@ $('payAuto').onclick = async () => {
     });
 
     $('payModal').classList.add('hidden');
-    toast('Auto-pay chalu! Har mahine apne aap ₹599 katega 🎉');
+    toast('Auto-pay chalu! Har mahine apne aap ₹999 katega 🎉');
     await enterApp();
   } catch (err) { toast(err.message); }
-  finally { btn.disabled = false; btn.textContent = 'Auto-pay har mahine · ₹599'; }
+  finally { btn.disabled = false; btn.textContent = 'Auto-pay har mahine · ₹999'; }
 };
 
 // ---- boot ----------------------------------------------------------------

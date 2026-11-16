@@ -410,10 +410,14 @@ test('upgrading reactivates a suspended tenant', async () => {
 
   const plans = await api('/api/payments', { cookie: login.cookie });
   assert.equal(plans.status, 200);
-  // Only one plan is sold, and the landing page advertises exactly this price.
-  // A second plan here would be an advertised-nowhere dead entry again.
-  assert.deepEqual(plans.body.plans.map((p) => p.id), ['starter']);
-  assert.equal(plans.body.plans[0].priceCents, 59900);
+  // Two plans are sold and the landing page advertises exactly these prices.
+  // A plan here that the page does not show would be a dead entry again.
+  assert.deepEqual(plans.body.plans.map((p) => p.id), ['starter', 'yearly']);
+  assert.equal(plans.body.plans[0].priceCents, 99900);
+  assert.equal(plans.body.plans[1].priceCents, 999900);
+  assert.equal(plans.body.plans[0].aiReplies, 2000, 'fair use is advertised');
+  // The yearly plan is two months free: 12 × 999 = 11,988, so 9,999 is a saving.
+  assert.ok(plans.body.plans[1].priceCents < plans.body.plans[0].priceCents * 12);
 
   const upgrade = await api('/api/payments?action=upgrade', {
     method: 'POST',
@@ -1456,8 +1460,8 @@ test('checkout is refused until Razorpay keys exist, then creates an order', asy
     });
     assert.equal(checkout.status, 200);
     assert.equal(checkout.body.orderId, 'order_E2E1');
-    assert.equal(checkout.body.amount, 59900, 'amount is sent in paise');
-    assert.equal(sentBody.amount, 59900);
+    assert.equal(checkout.body.amount, 99900, 'amount is sent in paise');
+    assert.equal(sentBody.amount, 99900);
     assert.equal(sentBody.currency, 'INR');
     assert.equal(checkout.body.keyId, 'rzp_test_e2e');
 
@@ -1478,7 +1482,7 @@ test('a tampered payment cannot activate a shop, a signed one can', async () => 
   );
   await query(
     `INSERT INTO payments (tenant_id, plan, amount_cents, razorpay_order_id)
-     SELECT id, 'starter', 59900, 'order_E2E2' FROM tenants WHERE slug = 'test-cafe'`,
+     SELECT id, 'starter', 99900, 'order_E2E2' FROM tenants WHERE slug = 'test-cafe'`,
   );
 
   const saved = { ...process.env };
@@ -1540,7 +1544,7 @@ test('the webhook activates a shop only when Razorpay confirms the payment', asy
   );
   await query(
     `INSERT INTO payments (tenant_id, plan, amount_cents, razorpay_order_id)
-     SELECT id, 'starter', 59900, 'order_E2E3' FROM tenants WHERE slug = 'test-cafe'`,
+     SELECT id, 'starter', 99900, 'order_E2E3' FROM tenants WHERE slug = 'test-cafe'`,
   );
 
   const saved = { ...process.env };
@@ -1553,7 +1557,7 @@ test('the webhook activates a shop only when Razorpay confirms the payment', asy
   });
 
   // Razorpay says the payment is captured, for our order and our amount.
-  const capture = { status: 'captured', order_id: 'order_E2E3', amount: 59900 };
+  const capture = { status: 'captured', order_id: 'order_E2E3', amount: 99900 };
   globalThis.fetch = async (url, opts) => {
     const u = String(url);
     if (u.includes('api.razorpay.com/v1/payments/')) {
@@ -1674,13 +1678,13 @@ test('subscribe opens a monthly mandate and records it against the shop', async 
     });
     assert.equal(res.status, 200);
     assert.equal(res.body.subscriptionId, 'sub_E2E1');
-    assert.equal(res.body.amount, 59900, 'the mandate is for the plan price in paise');
+    assert.equal(res.body.amount, 99900, 'the mandate is for the plan price in paise');
 
     // The plan is created once, monthly, for the right amount.
     const plan = calls.find((c) => c.url.endsWith('/plans'));
     assert.ok(plan, 'a plan was created');
     assert.equal(plan.body.period, 'monthly');
-    assert.equal(plan.body.item.amount, 59900);
+    assert.equal(plan.body.item.amount, 99900);
     assert.equal(plan.body.item.currency, 'INR');
 
     const sub = calls.find((c) => c.url.endsWith('/subscriptions'));
@@ -1870,4 +1874,122 @@ test('the dashboard reports an active mandate so the owner can see auto-pay', as
   assert.equal(res.status, 200);
   assert.ok(res.body.current.autoRenew, 'auto-renew is reported');
   assert.equal(res.body.current.autoRenew.subscriptionId, 'sub_E2E1');
+});
+
+// -- yearly + fair use -----------------------------------------------------
+
+test('the yearly plan is a one-time payment that buys a year', async () => {
+  await query(
+    "UPDATE tenants SET status = 'suspended', paid_until = NULL WHERE slug = 'test-cafe'",
+  );
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  let sentBody = null;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('api.razorpay.com')) {
+      sentBody = JSON.parse(opts.body);
+      return new Response(JSON.stringify({ id: 'order_YR1', amount: sentBody.amount }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const login = await api('/api/auth?action=login', {
+      method: 'POST',
+      body: { email: 'owner@test.cafe', password: 'supersecret123' },
+    });
+    const checkout = await api('/api/payments?action=checkout', {
+      method: 'POST', cookie: login.cookie, body: { plan: 'yearly' },
+    });
+    assert.equal(checkout.status, 200);
+    assert.equal(sentBody.amount, 999900, 'the year is charged in paise');
+
+    // Settling it sets the paid period a year out, not a month.
+    const signature = crypto.createHmac('sha256', 'e2e-secret')
+      .update('order_YR1|pay_YR1').digest('hex');
+    const ok = await api('/api/payments?action=verify', {
+      method: 'POST', cookie: login.cookie,
+      body: { razorpay_order_id: 'order_YR1', razorpay_payment_id: 'pay_YR1', razorpay_signature: signature },
+    });
+    assert.equal(ok.status, 200);
+    const tenant = await query("SELECT status, plan, paid_until FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(tenant.rows[0].status, 'active');
+    assert.equal(tenant.rows[0].plan, 'yearly');
+    const days = (new Date(tenant.rows[0].paid_until).getTime() - Date.now()) / 86400000;
+    assert.ok(days > 360, `a year is paid for (got ${Math.round(days)} days)`);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('the yearly plan cannot be opened as a monthly subscription', async () => {
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  try {
+    const login = await api('/api/auth?action=login', {
+      method: 'POST',
+      body: { email: 'owner@test.cafe', password: 'supersecret123' },
+    });
+    const res = await api('/api/payments?action=subscribe', {
+      method: 'POST', cookie: login.cookie, body: { plan: 'yearly' },
+    });
+    assert.equal(res.status, 400, 'a yearly plan is not recurring');
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('past the monthly AI allowance the shop still replies, without a model', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', plan = 'starter', paid_until = now() + interval '20 days' WHERE slug = 'test-cafe'",
+  );
+  const { createOrderFromMessage } = await import('../lib/orders.js');
+  const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+  const tenant = t[0];
+  const { rows: cust } = await query(
+    'SELECT id FROM customers WHERE tenant_id = $1 LIMIT 1', [tenant.id],
+  );
+
+  // Spend the whole allowance, then one more message arrives.
+  await query('DELETE FROM messages WHERE tenant_id = $1', [tenant.id]);
+  await query(
+    `INSERT INTO messages (tenant_id, customer_id, direction, body, ai_reply)
+     SELECT $1, $2, 'inbound', 'x', true FROM generate_series(1, 2000)`,
+    [tenant.id, cust[0].id],
+  );
+
+  const result = await createOrderFromMessage({
+    tenant,
+    message: { from: '919999900000', displayName: 'Over Limit', text: 'Do you have roses?', waMessageId: 'wam_over_1' },
+  });
+  assert.ok(result, 'the shop still answers');
+  assert.ok(!String(result.replySource).startsWith('llm:'), `no model was called (got ${result.replySource})`);
+  assert.ok(result.reply.length > 0, 'a reply is still produced');
+
+  // And nothing was stamped as an AI reply for this turn.
+  const { rows: stamped } = await query(
+    "SELECT ai_reply FROM messages WHERE wa_message_id = 'wam_over_1'",
+  );
+  assert.equal(stamped[0].ai_reply, false, 'an over-limit turn is not billed as AI');
+});
+
+test('a greeting never spends the AI allowance', async () => {
+  await query('DELETE FROM messages WHERE tenant_id = (SELECT id FROM tenants WHERE slug = $1)', ['test-cafe']);
+  const { createOrderFromMessage } = await import('../lib/orders.js');
+  const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+  const result = await createOrderFromMessage({
+    tenant: t[0],
+    message: { from: '919999900001', displayName: 'Greeter', text: 'Hi', waMessageId: 'wam_hi_1' },
+  });
+  assert.ok(result);
+  assert.equal(result.replySource, 'greeting', 'a hello is answered with no model');
+  const { rows } = await query("SELECT ai_reply FROM messages WHERE wa_message_id = 'wam_hi_1'");
+  assert.equal(rows[0].ai_reply, false, 'a greeting is free');
 });

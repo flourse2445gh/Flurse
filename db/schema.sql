@@ -316,3 +316,17 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 
 CREATE INDEX IF NOT EXISTS subscriptions_tenant_idx ON subscriptions (tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS subscriptions_rzp_idx ON subscriptions (razorpay_subscription_id);
+
+-- ---------------------------------------------------------------------------
+-- Fair use
+-- ---------------------------------------------------------------------------
+-- Each plan includes a number of AI replies per month. A reply costs real
+-- money, so the count is what the plan is really selling. The flag is set only
+-- on a turn that actually reached a model, so a greeting or a payment-QR answer
+-- (both answered without a model) never counts against the allowance. Once the
+-- allowance is spent the shop keeps replying, but from the keyword matcher,
+-- which costs nothing.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS ai_reply BOOLEAN NOT NULL DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS messages_ai_usage_idx
+  ON messages (tenant_id, created_at) WHERE ai_reply AND direction = 'inbound';
