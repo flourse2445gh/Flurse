@@ -156,10 +156,19 @@ messages into orders and shows them in a dashboard. 14-day trial, then
   land in the same columns. **Disconnect** is the DELETE on `/api/whatsapp`,
   surfaced in that tab and as a header chip (`waChip`).
   - Meta side: create a Facebook Login for Business configuration from the
-    *WhatsApp Embedded Signup* template and add every hosting domain to
-    **Allowed domains** and **Valid OAuth redirect URIs**. Domains are a list —
-    add a new one later without removing the old, and the Meta app id and
-    config id do not change.
+    *WhatsApp embedded sign-up configuration with 60-day expiry token* template
+    and add every hosting domain to **Allowed domains** and **Valid OAuth
+    redirect URIs**. Domains are a list — add a new one later without removing
+    the old, and the Meta app id and config id do not change.
+  - **Allowed domains takes a bare host** (`budsbox.vercel.app`), while the
+    redirect URI takes a full URL (`https://budsbox.vercel.app/app`). A scheme
+    or trailing slash in the allowed-domains box silently breaks the popup.
+  - `WHATSAPP_API_VERSION` must be recent for Embedded Signup v4; it is `v27.0`
+    in production, not the old `v21.0` default.
+  - Production has `WHATSAPP_APP_ID` and `WHATSAPP_ES_CONFIG_ID` set, so the
+    one-click button is the live path. Running the flow needs the app admin's
+    own Meta credentials, so it cannot be covered by the test suite beyond the
+    stubbed Graph calls.
 - Design system lives in `public/assets/app.css`; the landing page uses the
   Tailwind CDN with the BudsBox theme inlined in its `<head>`.
 - `/admin` is **locked by default**: with `ADMIN_SECRET` unset the admin API
