@@ -533,6 +533,77 @@ test('a shop connects and disconnects its WhatsApp number', async () => {
   assert.equal(after.body.connected, false);
 });
 
+test('embedded signup exchanges the code and subscribes the account', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  // Without an app id the flow is refused, so a half-configured deployment
+  // cannot hand the browser a dead button.
+  const off = await api('/api/whatsapp?action=embedded-signup', {
+    method: 'POST', cookie: login.cookie,
+    body: { code: 'C1', phone_number_id: 'PN-ES' },
+  });
+  assert.equal(off.status, 503);
+
+  const saved = { ...process.env };
+  process.env.WHATSAPP_APP_ID = 'app-e2e';
+  process.env.WHATSAPP_APP_SECRET = 'secret-e2e';
+  process.env.WHATSAPP_ES_CONFIG_ID = 'config-e2e';
+
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (!u.includes('graph.facebook.com')) return realFetch(url, opts);
+    calls.push({ u, method: opts.method || 'GET', auth: opts.headers?.Authorization });
+    const reply = (body) => new Response(JSON.stringify(body), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+    if (u.includes('/oauth/access_token')) {
+      assert.ok(u.includes('code=C1'), 'the code is exchanged');
+      return reply({ access_token: 'EAAG-es-token' });
+    }
+    if (u.includes('/subscribed_apps')) return reply({ success: true });
+    if (u.includes('/PN-ES')) {
+      return reply({ display_phone_number: '+91 90000 11111', verified_name: 'Test Cafe' });
+    }
+    return reply({});
+  };
+
+  try {
+    const done = await api('/api/whatsapp?action=embedded-signup', {
+      method: 'POST', cookie: login.cookie,
+      body: { code: 'C1', phone_number_id: 'PN-ES', waba_id: 'WABA-ES' },
+    });
+    assert.equal(done.status, 200);
+    assert.equal(done.body.connected, true);
+    assert.equal(done.body.displayNumber, '+91 90000 11111');
+
+    assert.equal(calls.length, 3, 'exchange, subscribe, then look up the number');
+    assert.ok(calls[0].u.includes('/oauth/access_token'));
+    assert.ok(calls[1].u.includes('/WABA-ES/subscribed_apps'));
+    assert.equal(calls[1].method, 'POST');
+    assert.ok(calls[2].u.includes('/PN-ES'));
+
+    // The token the code bought is what gets stored, and it never reaches the
+    // browser in any response body.
+    const status = await api('/api/whatsapp', { cookie: login.cookie });
+    assert.equal(status.body.connected, true);
+    assert.equal(status.body.displayNumber, '+91 90000 11111');
+    assert.equal(status.body.hasAccessToken, true);
+    assert.equal(status.body.embeddedSignup.available, true);
+    assert.equal(status.body.embeddedSignup.configId, 'config-e2e');
+    assert.ok(!JSON.stringify(status.body).includes('EAAG-es-token'));
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of ['WHATSAPP_APP_ID', 'WHATSAPP_APP_SECRET', 'WHATSAPP_ES_CONFIG_ID']) {
+      if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    }
+  }
+});
+
 test('conversations expose threads and record manual replies', async () => {
   const login = await api('/api/auth?action=login', {
     method: 'POST',

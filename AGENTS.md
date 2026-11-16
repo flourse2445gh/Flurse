@@ -146,9 +146,20 @@ messages into orders and shows them in a dashboard. 14-day trial, then
   Do NOT claim: automatic payment capture or a payment gateway, QR/Linked-Devices
   pairing, same-day detection, budget-based bouquet suggestions, or a
   `/join?shop=` route.
-- **WhatsApp connect** is done by pasting a Meta *Phone number ID* +
-  *Access token* in the app's WhatsApp tab. **Disconnect** is the DELETE on
-  `/api/whatsapp`, surfaced in that tab and as a header chip (`waChip`).
+- **WhatsApp connect** has two paths. With `WHATSAPP_APP_ID` and
+  `WHATSAPP_ES_CONFIG_ID` set, the tab shows **Connect with Facebook**
+  (Embedded Signup): the browser sends the short-lived `code` plus the asset
+  ids to `POST /api/whatsapp?action=embedded-signup`, and the server does the
+  token exchange, the WABA `subscribed_apps` call and the phone-number lookup.
+  The access token never reaches the page. Without those vars the tab falls
+  back to pasting a Meta *Phone number ID* + *Access token* by hand. Both paths
+  land in the same columns. **Disconnect** is the DELETE on `/api/whatsapp`,
+  surfaced in that tab and as a header chip (`waChip`).
+  - Meta side: create a Facebook Login for Business configuration from the
+    *WhatsApp Embedded Signup* template and add every hosting domain to
+    **Allowed domains** and **Valid OAuth redirect URIs**. Domains are a list —
+    add a new one later without removing the old, and the Meta app id and
+    config id do not change.
 - Design system lives in `public/assets/app.css`; the landing page uses the
   Tailwind CDN with the BudsBox theme inlined in its `<head>`.
 - `/admin` is **locked by default**: with `ADMIN_SECRET` unset the admin API
