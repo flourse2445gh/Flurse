@@ -128,6 +128,18 @@ messages into orders and shows them in a dashboard. 14-day trial, then
   tenant whose `paid_until` has passed. `action=upgrade` stays as a no-money
   stub but is refused once keys are configured, so it cannot skip payment in
   production. Amounts are paise, like orders.
+- **Auto-renewal (Razorpay Subscriptions).** `action=subscribe` opens a monthly
+  mandate: `ensureMonthlyPlan()` finds or creates a monthly plan for the plan
+  price (plans are immutable, so the amount is part of the lookup) and
+  `createSubscription()` enrols the shop for 120 months. The subscription id is
+  stored on `tenants.razorpay_subscription_id` and in a `subscriptions` row, so
+  a renewal webhook can find the shop without trusting the body. `action=webhook`
+  handles `subscription.charged`/`activated` by re-fetching the subscription and
+  setting `paid_until` to Razorpay's `current_end` — the shop stays active with
+  no operator action. `subscription.halted`/`cancelled` suspends the shop and
+  clears the access token, same as a trial expiry, so a dead mandate cannot keep
+  serving free. The browser flow returns `subscriptionId`, which goes to
+  Razorpay checkout as `subscription_id` (not `order_id`).
 - **Payment is manual and required before fulfilment.** Orders default to
   `payment_status = 'unpaid'`. The owner marks `paid` (or `refunded`) from the
   dashboard after the UPI transfer lands; `POST /api/dashboard?order_id=..&payment=1`
@@ -169,6 +181,23 @@ messages into orders and shows them in a dashboard. 14-day trial, then
     one-click button is the live path. Running the flow needs the app admin's
     own Meta credentials, so it cannot be covered by the test suite beyond the
     stubbed Graph calls.
+  - `WHATSAPP_MANUAL_CONNECT=true` re-exposes the hand-paste form while
+    Embedded Signup is configured. Shop owners should only ever see **Connect
+    with Facebook**; the form is an operator escape hatch for connecting a
+    number before Meta approves the portfolio for ES.
+  - **A silent webhook is almost always a missing `subscribed_apps` call, not
+    a code bug.** If inbound messages never reach the DB, check
+    `GET /{waba-id}/subscribed_apps` — the WABA is often subscribed to a
+    different app (e.g. a sandbox "WA DevX Webhook Events 1P App") and never to
+    this one. Fix with `POST /{waba-id}/subscribed_apps`. The handshake can
+    return 200 the whole time, so a healthy `GET /api/webhook` proves nothing
+    about delivery.
+  - **Test numbers only deliver to an allowed recipient list** (max 5). Sends
+    to anyone else fail with `(#131030) Recipient phone number not in allowed
+    list`. Add the number under *API Setup → To → Manage phone number list*.
+    The inbound message still arrives and the AI still generates a reply, so
+    the failure shows up only in the send step — the inbox gets an inbound row
+    with no matching outbound row.
 - Design system lives in `public/assets/app.css`; the landing page uses the
   Tailwind CDN with the BudsBox theme inlined in its `<head>`.
 - `/admin` is **locked by default**: with `ADMIN_SECRET` unset the admin API

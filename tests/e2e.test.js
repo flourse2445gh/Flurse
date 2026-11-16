@@ -1637,3 +1637,237 @@ test('a lapsed paid period is suspended by the cron, a live one is not', async (
   assert.equal(after.rows[0].status, 'suspended');
   assert.equal(after.rows[0].disconnect_reason, 'subscription_expired');
 });
+
+// -- auto-renewal ----------------------------------------------------------
+
+test('subscribe opens a monthly mandate and records it against the shop', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (u.includes('api.razorpay.com')) {
+      calls.push({ method: opts.method ?? 'GET', url: u, body: opts.body ? JSON.parse(opts.body) : null });
+      if (u.includes('/plans?') && (opts.method ?? 'GET') === 'GET') {
+        return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (u.endsWith('/plans')) {
+        return new Response(JSON.stringify({ id: 'plan_E2E' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (u.endsWith('/subscriptions')) {
+        return new Response(JSON.stringify({ id: 'sub_E2E1', status: 'created' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const res = await api('/api/payments?action=subscribe', {
+      method: 'POST', cookie: login.cookie, body: { plan: 'starter' },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.subscriptionId, 'sub_E2E1');
+    assert.equal(res.body.amount, 59900, 'the mandate is for the plan price in paise');
+
+    // The plan is created once, monthly, for the right amount.
+    const plan = calls.find((c) => c.url.endsWith('/plans'));
+    assert.ok(plan, 'a plan was created');
+    assert.equal(plan.body.period, 'monthly');
+    assert.equal(plan.body.item.amount, 59900);
+    assert.equal(plan.body.item.currency, 'INR');
+
+    const sub = calls.find((c) => c.url.endsWith('/subscriptions'));
+    assert.equal(sub.body.plan_id, 'plan_E2E');
+    assert.equal(sub.body.total_count, 120);
+
+    // The shop and the row both remember the mandate.
+    const row = await query(
+      "SELECT s.status, t.razorpay_subscription_id FROM subscriptions s JOIN tenants t ON t.id = s.tenant_id WHERE s.razorpay_subscription_id = 'sub_E2E1'",
+    );
+    assert.equal(row.rows.length, 1);
+    assert.equal(row.rows[0].status, 'created');
+    assert.equal(row.rows[0].razorpay_subscription_id, 'sub_E2E1');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('a renewal charge extends the paid period without the operator doing anything', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', paid_until = now() + interval '2 days' WHERE slug = 'test-cafe'",
+  );
+  await query(
+    "UPDATE subscriptions SET status = 'active' WHERE razorpay_subscription_id = 'sub_E2E1'",
+  );
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  const end = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('api.razorpay.com/v1/subscriptions/')) {
+      return new Response(JSON.stringify({ id: 'sub_E2E1', status: 'active', current_end: end }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const before = await query("SELECT paid_until FROM tenants WHERE slug = 'test-cafe'");
+    const res = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'subscription.charged',
+        payload: { subscription: { entity: { id: 'sub_E2E1' } } },
+      }),
+    });
+    assert.equal(res.status, 200);
+
+    const after = await query("SELECT status, paid_until FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(after.rows[0].status, 'active');
+    assert.ok(
+      new Date(after.rows[0].paid_until).getTime() > new Date(before.rows[0].paid_until).getTime(),
+      'the paid period moved forward',
+    );
+    assert.equal(
+      new Date(after.rows[0].paid_until).getTime(),
+      end * 1000,
+      'paid_until matches the period Razorpay charged for',
+    );
+
+    // An unknown subscription settles nothing.
+    const unknown = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'subscription.charged',
+        payload: { subscription: { entity: { id: 'sub_NOPE' } } },
+      }),
+    });
+    assert.equal(unknown.status, 200);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('a halted mandate suspends the shop instead of serving it free', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', wa_access_token = 'tok' WHERE slug = 'test-cafe'",
+  );
+  await query(
+    "UPDATE subscriptions SET status = 'active' WHERE razorpay_subscription_id = 'sub_E2E1'",
+  );
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('api.razorpay.com/v1/subscriptions/')) {
+      // Razorpay is the one that says the mandate is dead.
+      return new Response(JSON.stringify({ id: 'sub_E2E1', status: 'halted' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const res = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'subscription.halted',
+        payload: { subscription: { entity: { id: 'sub_E2E1' } } },
+      }),
+    });
+    assert.equal(res.status, 200);
+
+    const tenant = await query(
+      "SELECT status, wa_access_token, disconnect_reason FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(tenant.rows[0].status, 'suspended');
+    assert.equal(tenant.rows[0].wa_access_token, null, 'the number is disconnected');
+    assert.equal(tenant.rows[0].disconnect_reason, 'subscription_halted');
+
+    const sub = await query(
+      "SELECT status FROM subscriptions WHERE razorpay_subscription_id = 'sub_E2E1'",
+    );
+    assert.equal(sub.rows[0].status, 'halted');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('a forged halt body cannot suspend a healthy shop', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', wa_access_token = 'tok' WHERE slug = 'test-cafe'",
+  );
+  await query(
+    "UPDATE subscriptions SET status = 'active' WHERE razorpay_subscription_id = 'sub_E2E1'",
+  );
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('api.razorpay.com/v1/subscriptions/')) {
+      // Razorpay still reports the mandate as active, so the body was a lie.
+      return new Response(JSON.stringify({ id: 'sub_E2E1', status: 'active' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const res = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'subscription.halted',
+        payload: { subscription: { entity: { id: 'sub_E2E1' } } },
+      }),
+    });
+    assert.equal(res.status, 200);
+    const tenant = await query(
+      "SELECT status, wa_access_token FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(tenant.rows[0].status, 'active', 'a healthy shop is left alone');
+    assert.equal(tenant.rows[0].wa_access_token, 'tok', 'the number stays connected');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('the dashboard reports an active mandate so the owner can see auto-pay', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', paid_until = now() + interval '20 days' WHERE slug = 'test-cafe'",
+  );
+  await query(
+    "UPDATE subscriptions SET status = 'active', current_end = now() + interval '20 days' WHERE razorpay_subscription_id = 'sub_E2E1'",
+  );
+
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const res = await api('/api/payments', { cookie: login.cookie });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.current.autoRenew, 'auto-renew is reported');
+  assert.equal(res.body.current.autoRenew.subscriptionId, 'sub_E2E1');
+});

@@ -288,3 +288,31 @@ CREATE TABLE IF NOT EXISTS payments (
 
 CREATE INDEX IF NOT EXISTS payments_tenant_idx ON payments (tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS payments_order_idx ON payments (razorpay_order_id);
+
+-- ---------------------------------------------------------------------------
+-- Auto-renewal (Razorpay Subscriptions)
+-- ---------------------------------------------------------------------------
+-- A mandate the owner approves once. Razorpay then charges it every month on
+-- its own, so nobody has to remember to pay and the operator never chases
+-- anyone. The subscription id is kept on the tenant so a renewal webhook can
+-- find the shop without trusting anything in the body.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS razorpay_subscription_id TEXT;
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id                 UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  plan                      TEXT NOT NULL,
+  amount_cents              INTEGER NOT NULL,
+  currency                  TEXT NOT NULL DEFAULT 'INR',
+  razorpay_subscription_id  TEXT UNIQUE,
+  -- created -> active -> (halted | cancelled). `halted` means a charge failed
+  -- and Razorpay has stopped trying; the shop falls back to manual payment.
+  status                    TEXT NOT NULL DEFAULT 'created'
+                            CHECK (status IN ('created', 'active', 'halted', 'cancelled')),
+  current_end               TIMESTAMPTZ,
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS subscriptions_tenant_idx ON subscriptions (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS subscriptions_rzp_idx ON subscriptions (razorpay_subscription_id);

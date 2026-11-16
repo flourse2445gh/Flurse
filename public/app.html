@@ -308,6 +308,7 @@
         </label>
       </div>
       <button id="payDo" class="btn block" style="background:#3395ff;margin-top:18px">Pay ₹599</button>
+      <button id="payAuto" class="btn block ghost" style="margin-top:8px">Auto-pay har mahine · ₹599</button>
       <p class="muted center" style="margin:12px 0 0;font-size:10.5px" id="payNote">🔒 Razorpay secure checkout</p>
     </div>
   </div>
@@ -937,6 +938,38 @@ $('payDo').onclick = async () => {
     await enterApp();
   } catch (err) { toast(err.message); }
   finally { btn.disabled = false; btn.textContent = 'Pay ₹599'; }
+};
+
+// Auto-renewal: the owner approves a mandate once and Razorpay charges monthly.
+// Nothing else has to be remembered after this.
+$('payAuto').onclick = async () => {
+  const btn = $('payAuto');
+  btn.disabled = true; btn.textContent = 'Setting up…';
+  try {
+    const sub = await api('/api/payments?action=subscribe', {
+      method: 'POST', body: JSON.stringify({ plan: 'starter' }),
+    });
+
+    await new Promise((resolve, reject) => {
+      const rzp = new Razorpay({
+        key: sub.keyId,
+        subscription_id: sub.subscriptionId,
+        name: 'BudsBox',
+        description: 'Pro Monthly · auto-renew',
+        prefill: { name: sub.name },
+        theme: { color: '#3395ff' },
+        handler: () => resolve(),
+        modal: { ondismiss: () => reject(new Error('Auto-pay band kar diya')) },
+      });
+      rzp.on('payment.failed', (e) => reject(new Error(e.error?.description || 'Payment failed')));
+      rzp.open();
+    });
+
+    $('payModal').classList.add('hidden');
+    toast('Auto-pay chalu! Har mahine apne aap ₹599 katega 🎉');
+    await enterApp();
+  } catch (err) { toast(err.message); }
+  finally { btn.disabled = false; btn.textContent = 'Auto-pay har mahine · ₹599'; }
 };
 
 // ---- boot ----------------------------------------------------------------
