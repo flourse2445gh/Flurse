@@ -36,6 +36,7 @@ export default handler(async (req, res) => {
         configId: process.env.WHATSAPP_ES_CONFIG_ID ?? null,
         apiVersion: process.env.WHATSAPP_API_VERSION || 'v21.0',
       },
+      manualConnect: process.env.WHATSAPP_MANUAL_CONNECT === 'true',
     });
     return;
   }

@@ -661,11 +661,13 @@ async function loadWhatsApp() {
   $('waWebhook').value = `${location.origin}${wa.webhookPath}`;
   $('waVerify').value = wa.verifyToken || '(shop banao ke baad milega)';
 
-  // One-click signup only makes sense once the operator has configured the Meta
-  // app. Until then the hand-paste form is the only way in, so it stays open.
   const es = wa.embeddedSignup || {};
   $('waEsBox').classList.toggle('hidden', !es.available);
-  $('waManual').classList.toggle('hidden', Boolean(es.available));
+  // Shop owners only ever see "Connect with Facebook". Hand-pasting credentials
+  // is a developer escape hatch, so it appears when Embedded Signup is not
+  // configured, or when the operator opts in via WHATSAPP_MANUAL_CONNECT.
+  const showManual = !es.available || wa.manualConnect;
+  $('waManual').classList.toggle('hidden', !showManual);
   if (es.available) {
     $('waManual').open = false;
     setupEmbeddedSignup(es);
@@ -786,7 +788,9 @@ async function finishEmbeddedSignup(code) {
   const ids = esState.ids || {};
   const phoneNumberId = ids.phone_number_id || ids.phoneNumberId;
   if (!phoneNumberId) {
-    throw new Error('Number ka ID nahi mila — popup me number select karke Finish dabao');
+    throw new Error(esState.cancelled
+      ? 'Aapne connect karna band kar diya'
+      : 'Meta ne number nahi diya — popup me number select karke Finish dabao. Baar baar ho raha ho to business portfolio verify karna padega.');
   }
   $('waEsNote').textContent = 'Number connect ho raha hai…';
   await api('/api/whatsapp?action=embedded-signup', {
