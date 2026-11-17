@@ -49,6 +49,25 @@
       <div class="field"><label for="liPass">Password</label><input id="liPass" type="password" required autocomplete="current-password" placeholder="••••••••"></div>
       <div class="error" id="liError"></div>
       <button class="btn block" type="submit">Log in</button>
+      <p class="muted center" style="margin:10px 0 0"><a href="#" id="forgotLink">Password bhool gaye?</a></p>
+    </form>
+
+    <form id="forgotForm" class="stack hidden">
+      <h2 style="font-size:20px;margin:0">Password reset karein</h2>
+      <p class="muted" style="margin:0">Apna email daaliye — reset link bhej denge.</p>
+      <div class="field"><label for="fgEmail">Email</label><input id="fgEmail" type="email" required autocomplete="email" placeholder="owner@shop.com"></div>
+      <div class="error" id="fgError"></div>
+      <div class="ok" id="fgOk"></div>
+      <button class="btn block" type="submit">Reset link bhejein</button>
+      <p class="muted center" style="margin:10px 0 0"><a href="#" id="fgBack">← Log in par wapas</a></p>
+    </form>
+
+    <form id="resetForm" class="stack hidden">
+      <h2 style="font-size:20px;margin:0">Naya password banayein</h2>
+      <div class="field"><label for="rsPass">Naya password</label><input id="rsPass" type="password" minlength="8" required autocomplete="new-password" placeholder="Kam se kam 8 characters"></div>
+      <div class="field"><label for="rsPass2">Dobara likhein</label><input id="rsPass2" type="password" minlength="8" required autocomplete="new-password" placeholder="Wahi password dobara"></div>
+      <div class="error" id="rsError"></div>
+      <button class="btn block" type="submit">Password set karein</button>
     </form>
 
     <form id="signupForm" class="stack hidden">
@@ -62,6 +81,12 @@
       <p class="muted" style="margin:2px 0 0">No card needed. 14 din full access, uske baad upgrade.</p>
     </form>
   </div>
+
+  <p class="center" style="margin-top:18px;font-size:11.5px;color:var(--ink-45)">
+    <a href="/privacy" style="color:inherit">Privacy</a> ·
+    <a href="/terms" style="color:inherit">Terms</a> ·
+    <a href="/refund" style="color:inherit">Refunds</a>
+  </p>
 </section>
 
 <!-- ============ APP ============ -->
@@ -175,6 +200,8 @@
             Ek click me apna number jodo — bas Facebook se login karo, number chuno, ho gaya.
             Har customer message ka auto-reply turant chalu ho jayega.
           </p>
+
+          <div id="waLocked" class="hidden" style="margin-bottom:16px;padding:12px 14px;border-radius:12px;background:var(--brand-soft);font-size:12.5px;line-height:1.5"></div>
 
           <div id="waEsBox" class="hidden" style="margin-bottom:16px">
             <button class="btn block" type="button" id="waEsStart"
@@ -331,17 +358,29 @@
 const state = { tenant: null, orders: [], conversations: [], activeConv: null, products: [], wa: null };
 
 // ---- auth ----------------------------------------------------------------
+// `which` is 'login' | 'signup' | 'forgot' | 'reset'. The reset screen is
+// reached from the emailed link (/app?reset=<token>), not a tab.
 function showAuth(which) {
   $('authView').classList.remove('hidden');
   $('appView').classList.add('hidden');
-  const login = which !== 'signup';
+  const login = which === 'login';
+  const signup = which === 'signup';
+  const forgot = which === 'forgot';
+  const reset = which === 'reset';
   $('loginForm').classList.toggle('hidden', !login);
-  $('signupForm').classList.toggle('hidden', login);
+  $('signupForm').classList.toggle('hidden', !signup);
+  $('forgotForm').classList.toggle('hidden', !forgot);
+  $('resetForm').classList.toggle('hidden', !reset);
+  // The tabs only make sense for the two ways in; the mail-driven screens hide
+  // them so nobody is pushed to "Start free trial" mid-reset.
+  document.querySelector('.tabs').classList.toggle('hidden', forgot || reset);
   $('tabLogin').classList.toggle('on', login);
-  $('tabSignup').classList.toggle('on', !login);
+  $('tabSignup').classList.toggle('on', signup);
 }
 $('tabLogin').onclick = () => showAuth('login');
 $('tabSignup').onclick = () => showAuth('signup');
+$('forgotLink').onclick = (e) => { e.preventDefault(); $('fgEmail').value = $('liEmail').value; showAuth('forgot'); };
+$('fgBack').onclick = (e) => { e.preventDefault(); showAuth('login'); };
 
 $('loginForm').onsubmit = async (e) => {
   e.preventDefault();
@@ -350,6 +389,31 @@ $('loginForm').onsubmit = async (e) => {
     await api('/api/auth?action=login', { method: 'POST', body: JSON.stringify({ email: $('liEmail').value, password: $('liPass').value }) });
     await enterApp();
   } catch (err) { $('liError').textContent = err.message; }
+};
+
+$('forgotForm').onsubmit = async (e) => {
+  e.preventDefault();
+  $('fgError').textContent = '';
+  $('fgOk').textContent = '';
+  try {
+    const r = await api('/api/auth?action=forgot', { method: 'POST', body: JSON.stringify({ email: $('fgEmail').value }) });
+    $('fgOk').textContent = r.emailConfigured
+      ? 'Agar ye email registered hai, to reset link bhej diya gaya hai. Inbox check karein.'
+      : 'Reset link ban gaya. Email service abhi off hai — operator ke paas link chala gaya hai.';
+  } catch (err) { $('fgError').textContent = err.message; }
+};
+
+$('resetForm').onsubmit = async (e) => {
+  e.preventDefault();
+  $('rsError').textContent = '';
+  if ($('rsPass').value !== $('rsPass2').value) { $('rsError').textContent = 'Dono password ek jaise nahi hain'; return; }
+  try {
+    await api('/api/auth?action=reset', { method: 'POST', body: JSON.stringify({ token: resetToken, password: $('rsPass').value }) });
+    // Drop the token from the URL so a refresh cannot replay a spent link.
+    history.replaceState(null, '', '/app');
+    toast('Password set ho gaya — ab log in karein ✅');
+    showAuth('login');
+  } catch (err) { $('rsError').textContent = err.message; }
 };
 
 $('signupForm').onsubmit = async (e) => {
@@ -879,13 +943,30 @@ async function loadWhatsApp() {
   $('waVerify').value = wa.verifyToken || '(shop banao ke baad milega)';
 
   const es = wa.embeddedSignup || {};
-  $('waEsBox').classList.toggle('hidden', !es.available);
+  // A suspended shop keeps its number, so the tab must not invite it to
+  // "connect" again — that reads as though the connection was lost, and the
+  // connect call would be refused anyway. Say plainly that the number is safe
+  // and a payment resumes it, and hide the connect affordances until then.
+  const locked = state.tenant && (state.tenant.status === 'suspended' || state.tenant.status === 'cancelled');
+  $('waEsBox').classList.toggle('hidden', !es.available || locked);
+
+  const lockedEl = $('waLocked');
+  if (locked) {
+    lockedEl.classList.remove('hidden');
+    lockedEl.innerHTML = wa.connected
+      ? `🔒 <b>Trial khatam — AI paused hai.</b> Aapka number (${escapeHtml(wa.displayNumber || wa.phoneNumberId || '')}) juda hua aur safe hai. Upgrade karte hi wahi number turant reply karna shuru kar dega — dobara connect karne ki zaroorat nahi.`
+      : '🔒 <b>Trial khatam.</b> Upgrade karne ke baad number connect kar sakte hain.';
+  } else {
+    lockedEl.classList.add('hidden');
+    lockedEl.innerHTML = '';
+  }
+
   // Shop owners only ever see "Connect with Facebook". Hand-pasting credentials
   // is a developer escape hatch, so it appears when Embedded Signup is not
   // configured, or when the operator opts in via WHATSAPP_MANUAL_CONNECT.
-  const showManual = !es.available || wa.manualConnect;
+  const showManual = (!es.available || wa.manualConnect) && !locked;
   $('waManual').classList.toggle('hidden', !showManual);
-  if (es.available) {
+  if (es.available && !locked) {
     $('waManual').open = false;
     setupEmbeddedSignup(es);
   }
@@ -1303,7 +1384,15 @@ $('payAuto').onclick = async () => {
 };
 
 // ---- boot ----------------------------------------------------------------
-enterApp().catch(() => showAuth(new URLSearchParams(location.search).get('start') ? 'signup' : 'login'));
+// A reset link is /app?reset=<token>. Read it once, then route to the right
+// screen: the reset form if the link is present, else login/signup.
+const bootParams = new URLSearchParams(location.search);
+const resetToken = bootParams.get('reset') || '';
+if (resetToken) {
+  showAuth('reset');
+} else {
+  enterApp().catch(() => showAuth(bootParams.get('start') ? 'signup' : 'login'));
+}
 </script>
 </body>
 </html>

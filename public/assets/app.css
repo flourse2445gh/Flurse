@@ -115,6 +115,7 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus { border-color: var(--brand); background: #fff; }
 .field { display: grid; gap: 6px; }
 .error { color: var(--red); font-size: 13px; min-height: 18px; }
+.ok { color: var(--wa-dark); font-size: 13px; font-weight: 600; min-height: 18px; }
 
 /* ---------- pills / chips ---------- */
 .pill {

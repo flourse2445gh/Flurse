@@ -192,6 +192,98 @@ test('dashboard requires a session', async () => {
   assert.equal(status, 401);
 });
 
+test('a forgotten password can be reset with the emailed link, once', async () => {
+  // No mail provider in tests, so the link is logged. Reach into the store to
+  // mint the same token the mail would carry, then drive the real endpoints.
+  const before = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  assert.equal(before.status, 200);
+
+  // The ask always answers the same, whether or not the email exists.
+  const known = await api('/api/auth?action=forgot', {
+    method: 'POST', body: { email: 'owner@test.cafe' },
+  });
+  const unknown = await api('/api/auth?action=forgot', {
+    method: 'POST', body: { email: 'ghost@nowhere.test' },
+  });
+  assert.equal(known.status, 200);
+  assert.equal(unknown.status, 200);
+  assert.equal(known.body.ok, unknown.body.ok);
+
+  // Only the hash is stored — the raw token never touches the database.
+  const rows = await query(
+    `SELECT pr.token_hash FROM password_resets pr
+       JOIN users u ON u.id = pr.user_id
+      WHERE lower(u.email) = 'owner@test.cafe' AND pr.used_at IS NULL`,
+  );
+  assert.equal(rows.rows.length, 1, 'a reset row was created');
+  assert.match(rows.rows[0].token_hash, /^[a-f0-9]{64}$/, 'only a sha-256 hash is stored');
+
+  // Mint a fresh token we know, the way the mail link carries it.
+  const { createPasswordReset } = await import('../lib/auth.js');
+  const user = await query("SELECT id, tenant_id FROM users WHERE lower(email) = 'owner@test.cafe'");
+  const { token } = await createPasswordReset(user.rows[0].id, user.rows[0].tenant_id);
+
+  // A weak password is refused without spending the token.
+  const weak = await api('/api/auth?action=reset', {
+    method: 'POST', body: { token, password: 'short' },
+  });
+  assert.equal(weak.status, 400);
+
+  const done = await api('/api/auth?action=reset', {
+    method: 'POST', body: { token, password: 'brand-new-pass-1' },
+  });
+  assert.equal(done.status, 200);
+
+  // The old password is dead, the new one works.
+  const oldPass = await api('/api/auth?action=login', {
+    method: 'POST', body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  assert.equal(oldPass.status, 401);
+  const newPass = await api('/api/auth?action=login', {
+    method: 'POST', body: { email: 'owner@test.cafe', password: 'brand-new-pass-1' },
+  });
+  assert.equal(newPass.status, 200);
+
+  // The same link cannot be replayed.
+  const replay = await api('/api/auth?action=reset', {
+    method: 'POST', body: { token, password: 'another-pass-22' },
+  });
+  assert.equal(replay.status, 400);
+
+  // A reset also logs out sessions that were opened with the old password.
+  const stale = await api('/api/dashboard', { cookie: before.cookie });
+  assert.equal(stale.status, 401, 'the pre-reset session was dropped');
+
+  // Put the known password back so later tests keep logging in with it.
+  const { hashPassword } = await import('../lib/auth.js');
+  await query(
+    `UPDATE users SET password_hash = $1 WHERE lower(email) = 'owner@test.cafe'`,
+    [hashPassword('supersecret123')],
+  );
+});
+
+test('an expired reset link is refused', async () => {
+  const { createPasswordReset } = await import('../lib/auth.js');
+  const user = await query("SELECT id, tenant_id FROM users WHERE lower(email) = 'owner@test.cafe'");
+  const { token } = await createPasswordReset(user.rows[0].id, user.rows[0].tenant_id);
+  // Age the row past its window.
+  await query(
+    `UPDATE password_resets SET expires_at = now() - interval '1 minute' WHERE used_at IS NULL`,
+  );
+  const res = await api('/api/auth?action=reset', {
+    method: 'POST', body: { token, password: 'whatever-pass-9' },
+  });
+  assert.equal(res.status, 400);
+  // And the still-valid password is untouched.
+  const login = await api('/api/auth?action=login', {
+    method: 'POST', body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  assert.equal(login.status, 200);
+});
+
 test('webhook rejects a request with no or a bad signature', async () => {
   const unsigned = await fetch(`${BASE}/api/webhook`, {
     method: 'POST',

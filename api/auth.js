@@ -7,11 +7,15 @@ import {
   clearSessionCookie,
   parseCookies,
   requireSession,
+  createPasswordReset,
+  consumePasswordReset,
+  setUserPassword,
 } from '../lib/auth.js';
 import { daysLeft } from '../lib/trial.js';
+import { emailPasswordReset, emailConfigured, appUrl } from '../lib/notify.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
-// POST /api/auth?action=login|logout   GET /api/auth  (current session)
+// POST /api/auth?action=login|logout|forgot|reset   GET /api/auth  (current session)
 export default handler(async (req, res) => {
   const action = new URL(req.url, 'http://localhost').searchParams.get('action') ?? 'session';
 
@@ -36,6 +40,55 @@ export default handler(async (req, res) => {
     const token = parseCookies(req).ob_session;
     if (token) await destroySession(token);
     res.setHeader('Set-Cookie', clearSessionCookie());
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  // Ask for a reset link. The response is always the same whether or not the
+  // email exists, so this cannot be used to find out who has an account.
+  if (action === 'forgot') {
+    const { email } = await readJson(req);
+    const normalized = String(email ?? '').trim().toLowerCase();
+    if (normalized) {
+      const { rows } = await query(
+        `SELECT u.id, u.tenant_id, t.business_name, t.owner_email
+           FROM users u JOIN tenants t ON t.id = u.tenant_id
+          WHERE lower(u.email) = $1`,
+        [normalized],
+      );
+      const user = rows[0];
+      if (user) {
+        const { token } = await createPasswordReset(user.id, user.tenant_id);
+        const link = `${appUrl()}/app?reset=${token}`;
+        const sent = await emailPasswordReset({
+          to: user.owner_email || normalized,
+          businessName: user.business_name,
+          link,
+        });
+        // With no mail provider the link is logged instead of lost, so the
+        // feature still works on a deployment that has not set a key yet.
+        if (!sent) console.log(`Password reset link for ${normalized}: ${link}`);
+      }
+    }
+    json(res, 200, {
+      ok: true,
+      emailConfigured: emailConfigured(),
+      note: 'Agar ye email registered hai, to reset link bhej diya gaya hai.',
+    });
+    return;
+  }
+
+  // Finish the reset: a single-use token plus a new password.
+  if (action === 'reset') {
+    const { token, password } = await readJson(req);
+    // Validate the password shape before spending the token, so a too-short
+    // password does not burn the link and force another email.
+    if (typeof password !== 'string' || password.length < 8) {
+      throw new HttpError(400, 'Password must be at least 8 characters');
+    }
+    const reset = await consumePasswordReset(String(token ?? ''));
+    if (!reset) throw new HttpError(400, 'Ye reset link galat hai ya purana ho gaya. Dobara maangein.');
+    await setUserPassword(reset.user_id, password);
     json(res, 200, { ok: true });
     return;
   }

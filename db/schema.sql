@@ -358,3 +358,25 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS is_sample BOOLEAN NOT NULL DEFAULT
 -- Delivery-day reminder, sent once by the daily cron so the customer is not
 -- surprised on the day. The timestamp keeps a later run from sending it twice.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ;
+
+-- ---------------------------------------------------------------------------
+-- Password resets
+-- ---------------------------------------------------------------------------
+-- A shop owner who forgets their password otherwise has no way back in: the
+-- login is the only door, and a lost password meant creating a second shop and
+-- abandoning the number and orders on the first. The raw token is emailed and
+-- never stored; only its SHA-256 hash is kept, so a database read cannot be
+-- replayed into a takeover. `used_at` makes a link single-use, and `expires_at`
+-- keeps a stale mail from working a day later.
+CREATE TABLE IF NOT EXISTS password_resets (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  tenant_id   UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  token_hash  TEXT NOT NULL UNIQUE,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used_at     TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS password_resets_token_idx ON password_resets (token_hash);
+CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets (user_id);
