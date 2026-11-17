@@ -380,3 +380,28 @@ because those are the two places that genuinely mean "forget this number".
 `a shop that pays after its trial lapses gets its number working again` in
 tests/e2e.test.js is the regression guard — it lapses a shop, proves it is
 quiet, pays, and proves the same inbound message becomes an order again.
+
+## Rate limiting lives in Postgres, not in memory
+
+The login and reset-request endpoints are the two unauthenticated doors that
+take a guessable secret, so both are capped by `lib/ratelimit.js`. The counter
+is a `rate_limits` row, not an in-process `Map`: a Vercel function is frozen
+between requests and runs as several copies, so an in-memory counter would
+reset on every cold start and never be shared across instances. The upsert in
+`rateLimit()` is one atomic statement, so two concurrent requests cannot both
+read the old count. Login is keyed by **both** IP and email (10 / 15 min) so an
+attacker can neither hammer one account from many IPs nor spray many accounts
+from one; a correct password calls `clearRateLimit` so a real owner who
+mistyped is not locked out. The reset request is keyed per IP (5 / 15 min) so it
+cannot be used to spray a stranger's inbox. Any new unauthenticated endpoint
+that takes a secret or sends mail must call `rateLimit()` too.
+
+## Production needs RESEND_API_KEY for owner email
+
+`lib/notify.js` sends owner alerts and password-reset links through Resend. With
+no `RESEND_API_KEY`, `sendEmail` returns `false` and the code logs the message
+instead — orders and resets still work, but **no email leaves the server**, so a
+shopkeeper who forgot their password never receives the link. Set
+`RESEND_API_KEY` (and `EMAIL_FROM` once a domain is verified) in Vercel
+production before launch. `emailConfigured()` reports the state and the forgot
+endpoint returns it, which is how the live check caught this.
