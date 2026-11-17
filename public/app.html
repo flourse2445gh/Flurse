@@ -287,7 +287,7 @@
 
           <details id="waManual" class="hidden">
             <summary class="muted" style="cursor:pointer;font-size:12.5px">
-              Ya phir Phone number ID aur token haath se daalo
+              Advanced: agar aapke paas Meta se Phone number ID aur token hai
             </summary>
           <form id="waForm" class="stack" style="margin-top:12px">
             <div class="field"><label for="waPhone">Phone number ID</label><input id="waPhone" placeholder="123456789012345" required></div>
@@ -311,16 +311,18 @@
         <div class="card">
           <h3>Connection status</h3>
           <div id="waStatus" style="margin-top:12px"></div>
-          <div class="divider"></div>
-          <p class="muted" style="margin:0 0 6px">Webhook URL (Meta me paste karo)</p>
-          <div class="row">
-            <input id="waWebhook" readonly>
-            <button class="btn ghost sm" type="button" id="waCopy">Copy</button>
-          </div>
-          <p class="muted" style="margin:12px 0 6px">Verify token</p>
-          <div class="row">
-            <input id="waVerify" readonly>
-            <button class="btn ghost sm" type="button" id="waCopyVerify">Copy</button>
+          <div id="waDevTools" class="hidden">
+            <div class="divider"></div>
+            <p class="muted" style="margin:0 0 6px">Webhook URL (Meta me paste karo)</p>
+            <div class="row">
+              <input id="waWebhook" readonly>
+              <button class="btn ghost sm" type="button" id="waCopy">Copy</button>
+            </div>
+            <p class="muted" style="margin:12px 0 6px">Verify token</p>
+            <div class="row">
+              <input id="waVerify" readonly>
+              <button class="btn ghost sm" type="button" id="waCopyVerify">Copy</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1286,6 +1288,7 @@ async function loadWhatsApp() {
   // configured, or when the operator opts in via WHATSAPP_MANUAL_CONNECT.
   const showManual = (!es.available || wa.manualConnect) && !locked;
   $('waManual').classList.toggle('hidden', !showManual);
+  $('waDevTools').classList.toggle('hidden', !showManual);
   if (es.available && !locked) {
     $('waManual').open = false;
     setupEmbeddedSignup(es);
@@ -1294,14 +1297,14 @@ async function loadWhatsApp() {
   const shown = wa.displayNumber || wa.phoneNumberId;
   const exp = wa.tokenExpiresAt ? new Date(wa.tokenExpiresAt) : null;
   const expLine = exp
-    ? `<p class="muted" style="margin-top:6px">Token ${exp.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} tak valid hai.</p>`
+    ? `<p class="muted" style="margin-top:6px">Yeh connection ${exp.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} tak chalega — uske baad dobara connect karna hoga.</p>`
     : '';
   const alertLine = wa.alert
     ? `<p class="${wa.alert.level === 'error' ? 'error' : 'muted'}" style="margin-top:8px;font-weight:600">${escapeHtml(wa.alert.message)}</p>`
     : '';
   $('waStatus').innerHTML = wa.connected
     ? `<span class="pill active"><span class="dot"></span>Connected</span>
-       <p class="muted" style="margin-top:10px">Number: <b>${escapeHtml(shown)}</b><br>API: ${escapeHtml(wa.apiVersion)}</p>
+       <p class="muted" style="margin-top:10px">Number: <b>${escapeHtml(shown)}</b></p>
        ${expLine}${alertLine}`
     : `<span class="pill qr_pending"><span class="dot"></span>Not connected</span>
        <p class="muted" style="margin-top:10px">Abhi koi WhatsApp number juda nahi hai. Left side se connect karo.</p>`;
