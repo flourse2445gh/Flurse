@@ -224,7 +224,18 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
     the failure shows up only in the send step — the inbox gets an inbound row
     with no matching outbound row.
 - Design system lives in `public/assets/app.css`; the landing page uses the
-  Tailwind CDN with the BudsBox theme inlined in its `<head>`.
+  Tailwind CDN with the BudsBox theme inlined in its `<head>`. The theme there
+  defines `brand`, `brandDark`, `wa` and `waDark`; a class that uses a colour
+  the config does not define renders in the default ink colour, so add the
+  colour before using it.
+- **The landing page and the pay modal show the same three plans, two ways.**
+  A Monthly/Yearly toggle rewrites every price from its own `data-mo` /
+  `data-yr` (landing) or filters the catalogue by `billing` (modal), so only
+  three prices ever show at once and the two screens cannot disagree. A yearly
+  card carries a yearly-only line — "Mahine ka sirf ₹833 · ₹1,998 bachat" —
+  derived from the price, so the owner sees the per-month equivalent and the
+  saving without doing the division. Yearly is ten months' price, so the
+  "2 mahine free" claim is always true; a test asserts it.
 - `/admin` is **locked by default**: with `ADMIN_SECRET` unset the admin API
   answers 401 and the panel shows only the gate. Set `ADMIN_SECRET` in Vercel
   and redeploy to open it with that password. An unset secret never means open
