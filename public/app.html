@@ -88,7 +88,6 @@
   <div class="wrap" style="padding:20px">
     <div id="banner"></div>
     <div id="waBanner"></div>
-    <div id="emailHint"></div>
 
     <div class="grid-4" style="margin-bottom:18px">
       <div class="stat"><div class="label">Orders</div><div class="value" id="sOrders">—</div></div>
@@ -396,7 +395,6 @@ async function enterApp() {
   if (data.tenant.unseenOrders) {
     api('/api/dashboard?seen=1', { method: 'POST' }).catch(() => {});
   }
-  renderEmailHint(data.tenant);
   startOrderWatch();
 }
 
@@ -440,17 +438,6 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && state.tenant) refreshQuietly();
 });
 
-// Says plainly how a new order reaches the owner. Email alerts are the channel
-// that works when the dashboard is closed, so when they are off the app says so
-// instead of silently relying on someone refreshing a page.
-function renderEmailHint(tenant) {
-  const el = $('emailHint');
-  if (!el) return;
-  if (tenant.alertsByEmail) { el.classList.add('hidden'); return; }
-  el.className = 'banner warn';
-  el.innerHTML = `📧 <b>Email alerts off.</b> Naya order aane par owner ko email nahi jayega — sirf yahan dashboard me dikhega. Chalu karne ke liye <code>RESEND_API_KEY</code> set karein.`;
-}
-
 function renderTenant(tenant) {
   const locked = tenant.status === 'suspended' || tenant.status === 'cancelled';
   $('shopStatus').textContent = locked ? 'AI paused — trial over' : 'AI agent live';
@@ -477,26 +464,60 @@ function renderTenant(tenant) {
 
 // ---- order chime ---------------------------------------------------------
 // A chime when a new order lands. It is a local file played by the browser, so
-// it costs nothing: no API call, no message, no AI credit. The owner can mute
-// it, and the choice is remembered.
+// it costs nothing: no API call, no message, no AI credit. No account, no key,
+// nothing to sign up for — the sound ships with the app.
+//
+// Browsers block audio until the user has interacted with the page once. The
+// owner always has (they logged in), so we reuse a single preloaded <audio> and
+// unlock it on the first click/keypress, which is what makes the chime reliable
+// rather than a coin flip.
+const chimeEl = new Audio('/assets/order-chime.mp3');
+chimeEl.preload = 'auto';
+chimeEl.volume = 0.7;
 let audioCtx = null;
+
+function unlockAudio() {
+  // A silent play/pause during a real gesture tells the browser this page may
+  // make sound, so the later chime is allowed. Best-effort; never throws.
+  try {
+    const p = chimeEl.play();
+    if (p && p.then) p.then(() => { chimeEl.pause(); chimeEl.currentTime = 0; }).catch(() => {});
+  } catch { /* ignore */ }
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch { /* ignore */ }
+}
+window.addEventListener('pointerdown', unlockAudio, { once: true });
+window.addEventListener('keydown', unlockAudio, { once: true });
+
 function orderChime() {
   if (localStorage.getItem('bb_sound') === 'off') return;
   try {
-    const el = new Audio('/assets/order-chime.mp3');
-    el.volume = 0.6;
-    const p = el.play();
-    if (p && p.catch) p.catch(() => {});
+    chimeEl.currentTime = 0;
+    const p = chimeEl.play();
+    if (p && p.catch) p.catch(() => beep());
     return;
   } catch { /* fall through to the beep */ }
-  // If the browser blocks the file (rare), a WebAudio beep still alerts.
+  beep();
+}
+
+// A short two-tone beep through WebAudio, used only if the file cannot play.
+function beep() {
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.connect(g); g.connect(audioCtx.destination);
-    o.frequency.value = 880; g.gain.value = 0.08;
-    o.start(); o.stop(audioCtx.currentTime + 0.18);
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    [880, 1320].forEach((freq, i) => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.connect(g); g.connect(audioCtx.destination);
+      o.frequency.value = freq;
+      const t = audioCtx.currentTime + i * 0.16;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+      o.start(t); o.stop(t + 0.16);
+    });
   } catch { /* nothing left to try */ }
 }
 

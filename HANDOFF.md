@@ -89,10 +89,10 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 - **WhatsApp token expiry watch** — 60-din token expire hone se 7 din pehle
   dashboard banner, aur send fail hone par turant alert (pehle chup-chaap band
   ho jata tha)
-- **Naye order par owner ko alert** — naya order aane par owner ko poori order
-  wali email (`RESEND_API_KEY` chahiye) + dashboard pe "naya order" badge aur
-  **order chime** (local sound file, zero AI credit) jo dekhne par clear hote
-  hain; email band ho to app screen par saaf likhta hai
+- **Naye order par owner ko alert (koi signup nahi)** — naya order aane par
+  dashboard pe "naya order" badge aur **order chime** (local sound file, zero AI
+  credit, koi account/key nahi) jo dekhne par clear hote hain. Email optional
+  hai (`RESEND_API_KEY` mile to hi bhejta hai, warna chup-chaap skip)
 - **Nayi shop ka starter catalog** — signup par 8 common flower items seed hote
   hain (`is_sample` flag), taaki pehla message hi order ban sake
 - **Delivery-day reminder** — kal delivery wale order ko ek reminder; WhatsApp

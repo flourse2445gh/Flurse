@@ -19,9 +19,10 @@ Vercel marketplace.
   shop never goes silent
 - Orders carry the delivery details the AI lifts from the thread — delivery or
   pickup, address, date-time, recipient name and phone
-- A new order reaches the owner: an email with the full order, plus a "naya
-  order" badge and a chime on the dashboard that clear once seen (the chime is
-  a local sound file, so it costs no AI credit and no message)
+- A new order reaches the owner with no signup at all: a "naya order" badge
+  plus a chime on the dashboard that clear once seen (the chime is a local
+  sound file, so it costs no AI credit and no message). An optional owner
+  email can be switched on later with a mail-provider key
 - A new shop starts with a starter flower catalog, so the first customer message
   can become an order instead of "which flower?"
 - A delivery due tomorrow gets one reminder to the customer (WhatsApp, while the

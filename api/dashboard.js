@@ -9,7 +9,6 @@ import {
 } from '../lib/orders.js';
 import { daysLeft } from '../lib/trial.js';
 import { connectionAlert } from '../lib/wahealth.js';
-import { emailConfigured } from '../lib/notify.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 const VALID_STATUSES = ['pending', 'confirmed', 'fulfilled', 'cancelled'];
@@ -39,11 +38,9 @@ export default handler(async (req, res) => {
         // Whether the WhatsApp connection is healthy, decided in one place so
         // the banner and the WhatsApp tab cannot disagree.
         waAlert: connectionAlert(session),
-        // Orders that landed since the owner last opened the dashboard, and
-        // whether the owner-alert email is even switched on, so the app can
-        // tell the truth about how a new order reaches them.
+        // Orders that landed since the owner last opened the dashboard, so the
+        // app can chime and badge a new one the moment it arrives.
         unseenOrders: unseen,
-        alertsByEmail: emailConfigured(),
       },
       summary,
       orders,

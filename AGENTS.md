@@ -257,25 +257,28 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
     connected by hand before this change shows no false warning.
 - **A new order reaches the owner, not just the dashboard.** `createOrderFromMessage`
   returns a `newOrder` flag (true only on the first insert, so a follow-up that
-  adds details never re-alerts). `api/webhook.js` then calls `emailNewOrder`
-  from `lib/notify.js` best-effort, after the reply is queued, so an email
-  outage cannot break a reply. The dashboard also carries a live "naya order"
-  badge: it counts orders newer than `tenants.orders_seen_at`
+  adds details never re-alerts). The dashboard carries a live "naya order" badge
+  plus a chime: it counts orders newer than `tenants.orders_seen_at`
   (`unseenOrderCount` in `lib/orders.js`), `GET /api/dashboard` returns it as
   `tenant.unseenOrders`, and `POST /api/dashboard?seen=1` calls `markOrdersSeen`
-  to move the watermark. `tenant.alertsByEmail` (`emailConfigured()`) tells the
-  UI whether email is even switched on, and `app.html` shows a "Email alerts
-  off" banner when it is not — so the app never implies a channel it does not
-  have.
-  - **The dashboard chimes, for free.** `app.html` polls its own `/api/dashboard`
-    every 15s (`startOrderWatch`/`refreshQuietly`); when `unseenOrders` grows it
-    plays `public/assets/order-chime.mp3` and shows a toast, then marks the
-    orders seen. It is a local file played by the browser — no Meta call, no
-    message, no AI request — so the alert costs nothing, which is the whole
-    point. The very first load stays silent (orders were already waiting), the
-    poll pauses while the tab is hidden, and the owner can mute it (🔔/🔕,
-    remembered in `localStorage.bb_sound`). A WebAudio beep is the fallback if
-    the file cannot play.
+  to move the watermark.
+  - **The badge + chime are the primary alert and need no signup, key or
+    account.** `app.html` polls its own `/api/dashboard` every 15s
+    (`startOrderWatch`/`refreshQuietly`); when `unseenOrders` grows it plays
+    `public/assets/order-chime.mp3` and shows a toast, then marks the orders
+    seen. It is a local file played by the browser — no Meta call, no message,
+    no AI request — so the alert costs nothing, which is the whole point. The
+    chime is unlocked on the first click/keypress (browsers block audio until
+    the user interacts, and the owner always has by logging in), the very first
+    load stays silent (orders were already waiting), the poll pauses while the
+    tab is hidden, and the owner can mute it (🔔/🔕, remembered in
+    `localStorage.bb_sound`). A WebAudio two-tone beep is the fallback if the
+    file cannot play.
+  - **Email is an optional extra, never a dependency.** When `RESEND_API_KEY`
+    is set, `api/webhook.js` also calls `emailNewOrder` from `lib/notify.js`
+    best-effort, after the reply is queued, so an email outage cannot break a
+    reply. Without a key the email is simply skipped and nothing on screen nags
+    the owner about it — the badge and chime are the product.
 - **A new shop is not born empty.** `lib/samples.js` seeds eight common flower
   items on onboarding (`is_sample = true`), so the first customer message can
   become an order. `api/products.js` returns `is_sample` and clears it on the

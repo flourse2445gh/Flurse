@@ -2364,7 +2364,6 @@ test('the dashboard counts unseen orders and clears them once seen', async () =>
   await query("UPDATE tenants SET orders_seen_at = NULL WHERE slug = 'test-cafe'");
   const first = await api('/api/dashboard', { cookie: login.cookie });
   assert.ok(first.body.tenant.unseenOrders >= 1, 'unseen orders are counted');
-  assert.equal(typeof first.body.tenant.alertsByEmail, 'boolean');
 
   const seen = await api('/api/dashboard?seen=1', { method: 'POST', cookie: login.cookie });
   assert.equal(seen.status, 200);
@@ -2442,12 +2441,16 @@ test('a reminder whose WhatsApp window is closed is emailed to the owner instead
   }
 });
 
-test('an order with no email key still works, and the dashboard says alerts are off', async () => {
+test('with no email key the dashboard still works, so the chime needs no signup', async () => {
+  // The owner alert is the dashboard badge + chime, which needs no account, no
+  // key and no email. Email is an optional extra; without a key nothing breaks.
   delete process.env.RESEND_API_KEY;
   const login = await api('/api/auth?action=login', {
     method: 'POST',
     body: { email: 'owner@test.cafe', password: 'supersecret123' },
   });
-  const { body } = await api('/api/dashboard', { cookie: login.cookie });
-  assert.equal(body.tenant.alertsByEmail, false, 'the app knows email alerts are off');
+  await query("UPDATE tenants SET orders_seen_at = NULL WHERE slug = 'test-cafe'");
+  const { status, body } = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(status, 200);
+  assert.ok(body.tenant.unseenOrders >= 1, 'the badge count works without any email key');
 });
