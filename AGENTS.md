@@ -426,3 +426,11 @@ accepted`, which reads like a server fault. `gmailReady()` therefore requires th
 sanitized value to be exactly 16 letters, and the failure log prints the account
 and the sanitized length (never the secret) — that is what located the bad
 value. When a Gmail send starts failing, check that length first.
+
+## Never email a stranger's address
+
+`startt.47@gmail.com` is **not the owner's mailbox** — it was a throwaway used
+once to test signup, and sending mail to it reaches a third party. Do not put it
+in code, tests, seed data, or a manual send. Test mail only against the account
+owner's own address (`startt.247@gmail.com`), which is also the only address a
+bare Resend key can reach.
