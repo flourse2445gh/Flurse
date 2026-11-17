@@ -288,6 +288,17 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
     account, no key, nothing to configure — so a reminder is never silently
     lost to a log line. It is a view of live data, not a one-shot, so it keeps
     showing until the order is delivered or its date moves.
+- **A delivery date is a day, not an hour.** `guessDeliveryAt` (in `lib/ai.js`)
+  runs after the model, as a deterministic backstop so a wrong day cannot reach
+  the kitchen. It reads a clock only when the text carries a marker (`6 baje`,
+  `18:30`, `shaam 6`) — a bare number is never an hour, which is what keeps
+  "15 tarikh ko chahiye" from being stored as 3pm today. A named day
+  ("15 tarikh", "15 August", "august 15") is resolved against the IST calendar
+  day, rolling to next month or next year when that day has already passed, and
+  gets a default 11:00 IST slot when no time is given. A vague window
+  ("agle hafte", "next week") stores nothing so the reply flow asks. The order
+  prompt also states today's date in IST, not UTC — `toISOString()` is a day
+  behind after 5:30am IST, which silently shifted relative dates.
 - **A new shop is not born empty.** `lib/samples.js` seeds eight common flower
   items on onboarding (`is_sample = true`), so the first customer message can
   become an order. `api/products.js` returns `is_sample` and clears it on the

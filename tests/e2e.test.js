@@ -1392,8 +1392,32 @@ test('a relative delivery time is resolved to India time without the model', asy
 
   // The day is the Indian one, so compare in IST and not in UTC.
   const istDay = (iso) => new Date(new Date(iso).getTime() + 5.5 * 3600 * 1000).getUTCDate();
+  const istMonth = (iso) => new Date(new Date(iso).getTime() + 5.5 * 3600 * 1000).getUTCMonth();
   assert.equal(istDay(guessDeliveryAt('kal subah 9 baje', now)), 11, '"kal" is the next day');
   assert.equal(istDay(guessDeliveryAt('parso 5 baje', now)), 12, '"parso" is two days out');
+
+  // A bare date number is a day, never an hour. "15 tarikh" must not become 3pm.
+  const fifteenth = guessDeliveryAt('15 tarikh ko chahiye', now);
+  assert.equal(istDay(fifteenth), 15, '"15 tarikh" is the 15th');
+  assert.equal(istMonth(fifteenth), 2, 'and still March');
+  assert.equal(new Date(fifteenth).getUTCHours(), 5, 'with a default morning hour, not 3pm');
+
+  assert.equal(istDay(guessDeliveryAt('20 tarikh subah 10 baje chahiye', now)), 20, 'day and time together');
+  assert.equal(new Date(guessDeliveryAt('20 tarikh subah 10 baje chahiye', now)).getUTCHours(), 4, '10am IST is 4:30 UTC');
+
+  // A day already gone this month rolls to the next month.
+  const rolled = guessDeliveryAt('8 tarikh tak chahiye', now);
+  assert.equal(istMonth(rolled), 3, 'the 8th has passed, so it is next month');
+  assert.equal(istDay(rolled), 8);
+
+  // A named month is honoured, and a month already past rolls to next year.
+  assert.equal(istMonth(guessDeliveryAt('15 August ko chahiye', now)), 7, 'August is month 8');
+  assert.equal(istDay(guessDeliveryAt('august 15 chahiye', now)), 15, 'month-first also works');
+  assert.equal(istMonth(guessDeliveryAt('5 January ko', now)), 0, 'a past month rolls to next year');
+
+  // A vague window names no exact day, so nothing is stored and the flow asks.
+  assert.equal(guessDeliveryAt('agle hafte chahiye', now), null, 'no exact day, no date');
+  assert.equal(guessDeliveryAt('next week chahiye', now), null);
 });
 
 test('delivery details from the thread land on the order', async () => {
