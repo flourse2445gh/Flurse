@@ -142,6 +142,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); backgrou
 .banner.trial { background: linear-gradient(90deg, rgba(255, 107, 157, .12), rgba(37, 211, 102, .12)); border: 1px solid rgba(255, 107, 157, .25); }
 .banner.locked { background: #ffe8e8; border: 1px solid rgba(201, 48, 48, .25); color: #8a2020; }
 .banner.info { background: #fff; border: 1px solid var(--line); }
+/* Connection at risk: amber for "fix it soon", red for "already broken". */
+.banner.warn { background: #fff3dc; border: 1px solid rgba(181, 122, 16, .3); color: #8a5c08; }
+.banner.danger { background: #ffe8e8; border: 1px solid rgba(201, 48, 48, .3); color: #8a2020; }
 
 /* ---------- whatsapp-style chat ---------- */
 .chat-body { background: #efeae2; padding: 16px; overflow-y: auto; }

@@ -5,6 +5,7 @@ import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.j
 import {
   embeddedSignupConfigured, exchangeSignupCode, subscribeAppToWaba, fetchPhoneNumber,
 } from '../lib/whatsapp.js';
+import { connectionAlert } from '../lib/wahealth.js';
 
 // GET    /api/whatsapp            -> this shop's WhatsApp connection
 // POST   /api/whatsapp            -> save Cloud API credentials by hand
@@ -17,7 +18,8 @@ export default handler(async (req, res) => {
   if (req.method === 'GET') {
     const { rows } = await query(
       `SELECT wa_phone_number_id, wa_verify_token, wa_access_token,
-              wa_waba_id, wa_display_number
+              wa_waba_id, wa_display_number, wa_token_expires_at,
+              wa_last_error, wa_last_error_kind, wa_last_error_at
          FROM tenants WHERE id = $1`,
       [session.tenant_id],
     );
@@ -28,6 +30,8 @@ export default handler(async (req, res) => {
       displayNumber: t.wa_display_number ?? null,
       verifyToken: t.wa_verify_token ?? null,
       hasAccessToken: Boolean(t.wa_access_token),
+      tokenExpiresAt: t.wa_token_expires_at ?? null,
+      alert: connectionAlert(t),
       apiVersion: process.env.WHATSAPP_API_VERSION || 'v21.0',
       webhookPath: '/api/webhook',
       embeddedSignup: {
@@ -48,6 +52,10 @@ export default handler(async (req, res) => {
               wa_phone_number_id = NULL,
               wa_waba_id = NULL,
               wa_display_number = NULL,
+              wa_token_expires_at = NULL,
+              wa_last_error = NULL,
+              wa_last_error_kind = NULL,
+              wa_last_error_at = NULL,
               updated_at = now()
         WHERE id = $1`,
       [session.tenant_id],
@@ -76,6 +84,10 @@ export default handler(async (req, res) => {
           SET wa_phone_number_id = $2,
               wa_access_token = $3,
               wa_verify_token = COALESCE(wa_verify_token, $4),
+              wa_token_expires_at = NULL,
+              wa_last_error = NULL,
+              wa_last_error_kind = NULL,
+              wa_last_error_at = NULL,
               updated_at = now()
         WHERE id = $1
         RETURNING wa_phone_number_id, wa_verify_token`,
@@ -113,7 +125,7 @@ async function finishEmbeddedSignup(req, res, session) {
   if (!phoneNumberId) throw new HttpError(400, 'phone_number_id is required');
 
   // Exchange first: the code is only valid for 30 seconds.
-  const accessToken = await exchangeSignupCode(code);
+  const { accessToken, expiresAt } = await exchangeSignupCode(code);
 
   if (wabaId) await subscribeAppToWaba({ wabaId, accessToken });
 
@@ -128,6 +140,10 @@ async function finishEmbeddedSignup(req, res, session) {
               wa_waba_id = $4,
               wa_display_number = $5,
               wa_verify_token = COALESCE(wa_verify_token, $6),
+              wa_token_expires_at = $7,
+              wa_last_error = NULL,
+              wa_last_error_kind = NULL,
+              wa_last_error_at = NULL,
               updated_at = now()
         WHERE id = $1
         RETURNING wa_phone_number_id, wa_display_number, wa_verify_token`,
@@ -138,6 +154,7 @@ async function finishEmbeddedSignup(req, res, session) {
         wabaId || null,
         phone?.displayPhoneNumber ?? null,
         crypto.randomUUID(),
+        expiresAt,
       ],
     ));
   } catch (err) {

@@ -234,6 +234,16 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_phone TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_waba_id        TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_display_number TEXT;
 
+-- The Cloud API token expires (60 days from Embedded Signup). Nothing used to
+-- watch that clock, so a shop went silent the day it lapsed: messages kept
+-- arriving and the AI kept drafting, but every send failed and only the server
+-- log knew. Storing the expiry lets the dashboard warn the owner before it
+-- happens, and the last send error catches a dead token that lapses early.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_token_expires_at TIMESTAMPTZ;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_last_error       TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_last_error_kind  TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_last_error_at    TIMESTAMPTZ;
+
 -- Payment. A florist takes the money before the flowers leave, so an order is
 -- not done until it is paid. `unpaid` is the only non-terminal state; the shop
 -- owner marks `paid` or `refunded` by hand after seeing the transfer land.

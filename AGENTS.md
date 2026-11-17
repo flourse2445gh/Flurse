@@ -227,6 +227,23 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
     The inbound message still arrives and the AI still generates a reply, so
     the failure shows up only in the send step — the inbox gets an inbound row
     with no matching outbound row.
+  - **The token expires 60 days after Embedded Signup, and nothing used to
+    watch it.** `lib/wahealth.js` is the one place that decides whether a
+    connection is at risk. `exchangeSignupCode` returns `{ accessToken,
+    expiresAt }` (Meta's `expires_in`); the ES path stores `wa_token_expires_at`
+    and clears any old error. The manual path stores no expiry (the operator
+    owns that token). Every webhook send calls `recordSendOutcome`, which keeps
+    `wa_last_error` / `wa_last_error_kind` on the tenant (cleared on success),
+    so a 401 that kills sends early is caught too. `connectionAlert` turns that
+    into the banner: `token_dead` (kind `token`/`permission` — an error),
+    `token_expired` (error), `token_expiring` (within `TOKEN_WARN_DAYS`, a
+    warning) or `send_failed` (a non-recipient failure). The dashboard exposes
+    it as `tenant.waAlert`; `/api/whatsapp` as `alert`; `app.html` renders it in
+    `#waBanner` and the WhatsApp tab. The daily cron logs expiring shops.
+    `sendWhatsApp*` errors carry `httpStatus` and Meta's `code`, because a bare
+    message cannot tell a dead token (401/190) from one bad recipient (131030).
+    A `token_expiring` alert only appears when an expiry is stored, so a shop
+    connected by hand before this change shows no false warning.
 - Design system lives in `public/assets/app.css`; the landing page uses the
   Tailwind CDN with the BudsBox theme inlined in its `<head>`. The theme there
   defines `brand`, `brandDark`, `wa` and `waDark`; a class that uses a colour

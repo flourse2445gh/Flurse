@@ -7,6 +7,7 @@ import {
   createOrderFromMessage, recordOutboundMessage, recordInboundOnly, openAmountFor,
 } from '../lib/orders.js';
 import { handler, readRaw, json, error, requireMethod } from '../lib/http.js';
+import { recordSendOutcome } from '../lib/wahealth.js';
 
 // GET /api/webhook  — Meta's subscription handshake
 function verify(req, res) {
@@ -133,19 +134,22 @@ async function handleMessage(message) {
           link: qrUrl,
           caption,
         });
+        await recordSendOutcome(tenant.id, null);
       } catch (err) {
         // A WhatsApp hiccup must not lose the fact the shop answered.
         console.error('Failed to send payment QR', err.message);
+        let recovered = false;
         if (tenant.shop_upi_id) {
-          await sendWhatsAppText({
+          recovered = await sendWhatsAppText({
             phoneNumberId: tenant.wa_phone_number_id,
             accessToken: tenant.wa_access_token,
             to: message.from,
             body: tenant.shop_payment_name
               ? `${caption} UPI: ${tenant.shop_upi_id} (${tenant.shop_payment_name})`
               : `${caption} UPI: ${tenant.shop_upi_id}`,
-          }).catch(() => {});
+          }).then(() => true).catch(() => false);
         }
+        await recordSendOutcome(tenant.id, recovered ? null : err);
       }
     }
     await recordOutboundMessage({
@@ -161,12 +165,22 @@ async function handleMessage(message) {
   if (!result) return; // duplicate delivery
 
   if (tenant.wa_access_token) {
-    await sendWhatsAppText({
-      phoneNumberId: tenant.wa_phone_number_id,
-      accessToken: tenant.wa_access_token,
-      to: message.from,
-      body: result.reply,
-    });
+    try {
+      await sendWhatsAppText({
+        phoneNumberId: tenant.wa_phone_number_id,
+        accessToken: tenant.wa_access_token,
+        to: message.from,
+        body: result.reply,
+      });
+      await recordSendOutcome(tenant.id, null);
+    } catch (err) {
+      // Record why the send failed so the owner is told, then rethrow: the
+      // caller still logs the failure to `webhook_events` and skips the
+      // outbound row, which is how a gap in the inbox stays visible.
+      console.error('Failed to send WhatsApp reply', err.message);
+      await recordSendOutcome(tenant.id, err);
+      throw err;
+    }
   }
 
   await recordOutboundMessage({

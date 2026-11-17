@@ -648,6 +648,202 @@ test('embedded signup exchanges the code and subscribes the account', async () =
   }
 });
 
+test('embedded signup stores when the token expires', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const saved = { ...process.env };
+  process.env.WHATSAPP_APP_ID = 'app-e2e';
+  process.env.WHATSAPP_APP_SECRET = 'secret-e2e';
+  process.env.WHATSAPP_ES_CONFIG_ID = 'config-e2e';
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (!u.includes('graph.facebook.com')) return realFetch(url, opts);
+    const reply = (body) => new Response(JSON.stringify(body), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+    if (u.includes('/oauth/access_token')) {
+      return reply({ access_token: 'EAAG-expiry', expires_in: 60 * 24 * 60 * 60 });
+    }
+    if (u.includes('/subscribed_apps')) return reply({ success: true });
+    return reply({ display_phone_number: '+91 90000 22222', verified_name: 'Test Cafe' });
+  };
+
+  try {
+    const done = await api('/api/whatsapp?action=embedded-signup', {
+      method: 'POST', cookie: login.cookie,
+      body: { code: 'C2', phone_number_id: 'PHONE-EXP', waba_id: 'WABA-EXP' },
+    });
+    assert.equal(done.status, 200);
+
+    // ~60 days from now, stored on the tenant so the dashboard can warn first.
+    const { rows } = await query(
+      "SELECT wa_token_expires_at FROM tenants WHERE slug = 'test-cafe'",
+    );
+    const days = (new Date(rows[0].wa_token_expires_at).getTime() - Date.now()) / 86400000;
+    assert.ok(days > 59 && days <= 60, `expiry should be ~60 days out, got ${days}`);
+
+    const status = await api('/api/whatsapp', { cookie: login.cookie });
+    assert.ok(status.body.tokenExpiresAt, 'the expiry is reported to the dashboard');
+    assert.equal(status.body.alert, null, 'a fresh 60-day token raises no alert');
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of ['WHATSAPP_APP_ID', 'WHATSAPP_APP_SECRET', 'WHATSAPP_ES_CONFIG_ID']) {
+      if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    }
+  }
+});
+
+test('a token about to expire is flagged, and a dead token is a hard alert', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  // Five days left: warn, but not an error.
+  await query(
+    "UPDATE tenants SET wa_access_token = 'tok', wa_phone_number_id = 'PHONE1', wa_token_expires_at = now() + interval '5 days' WHERE slug = 'test-cafe'",
+  );
+  const warn = await api('/api/whatsapp', { cookie: login.cookie });
+  assert.equal(warn.body.alert.kind, 'token_expiring');
+  assert.equal(warn.body.alert.level, 'warning');
+
+  const dashWarn = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(dashWarn.body.tenant.waAlert.kind, 'token_expiring', 'the dashboard shows the same warning');
+
+  // Already expired: the shop cannot send, so it is an error.
+  await query(
+    "UPDATE tenants SET wa_token_expires_at = now() - interval '1 hour' WHERE slug = 'test-cafe'",
+  );
+  const dead = await api('/api/whatsapp', { cookie: login.cookie });
+  assert.equal(dead.body.alert.kind, 'token_expired');
+  assert.equal(dead.body.alert.level, 'error');
+
+  // A rejected token (Meta 401) is an error even before the clock runs out.
+  await query(
+    "UPDATE tenants SET wa_token_expires_at = now() + interval '40 days', wa_last_error_kind = 'token' WHERE slug = 'test-cafe'",
+  );
+  const rejected = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(rejected.body.tenant.waAlert.kind, 'token_dead');
+  assert.equal(rejected.body.tenant.waAlert.level, 'error');
+
+  // A healthy connection clears the banner entirely.
+  await query(
+    "UPDATE tenants SET wa_token_expires_at = now() + interval '40 days', wa_last_error_kind = NULL WHERE slug = 'test-cafe'",
+  );
+  const healthy = await api('/api/whatsapp', { cookie: login.cookie });
+  assert.equal(healthy.body.alert, null);
+});
+
+test('a failed WhatsApp send is recorded so the shop is told', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active', wa_last_error_kind = NULL, wa_token_expires_at = now() + interval '40 days' WHERE slug = 'test-cafe'",
+  );
+
+  // Meta answers with a rejected token.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      return new Response(JSON.stringify({ error: { code: 190, message: 'Invalid OAuth access token' } }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const payload = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550002222', text: '2 roses', id: 'wamid.FAIL1',
+    });
+    const { raw, sig } = signedWebhook(payload);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+      body: raw,
+    });
+
+    const { rows } = await query(
+      "SELECT wa_last_error_kind, wa_last_error FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(rows[0].wa_last_error_kind, 'token', 'a 401 is classified as a dead token');
+    assert.match(rows[0].wa_last_error, /401/);
+
+    // The dashboard now shows the hard alert, without anyone reading the logs.
+    const dash = await api('/api/dashboard', { cookie: login.cookie });
+    assert.equal(dash.body.tenant.waAlert.kind, 'token_dead');
+    assert.equal(dash.body.tenant.waAlert.level, 'error');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a successful send clears the failure flag', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active', wa_last_error = 'old', wa_last_error_kind = 'token' WHERE slug = 'test-cafe'",
+  );
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.OK' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const payload = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550003333', text: 'hello', id: 'wamid.OK1',
+    });
+    const { raw, sig } = signedWebhook(payload);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+      body: raw,
+    });
+
+    const { rows } = await query(
+      "SELECT wa_last_error, wa_last_error_kind FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(rows[0].wa_last_error, null, 'a working send clears the recorded failure');
+    assert.equal(rows[0].wa_last_error_kind, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('the cron reports tokens that are about to expire', async () => {
+  await query(
+    "UPDATE tenants SET wa_access_token = 'tok', wa_phone_number_id = 'PHONE1', status = 'active', trial_ends_at = now() + interval '10 days', wa_token_expires_at = now() + interval '3 days' WHERE slug = 'test-cafe'",
+  );
+  const run = await fetch(`${BASE}/api/cron/trial`, {
+    headers: { Authorization: 'Bearer test-cron-secret' },
+  });
+  assert.equal(run.status, 200);
+  const body = await run.json();
+  assert.ok(body.expiringTokens.includes('test-cafe'), 'the expiring shop is listed');
+  assert.equal(body.suspended, 0, 'a healthy shop is not suspended by the token watch');
+
+  await query(
+    "UPDATE tenants SET wa_token_expires_at = now() + interval '40 days' WHERE slug = 'test-cafe'",
+  );
+  const clear = await fetch(`${BASE}/api/cron/trial`, {
+    headers: { Authorization: 'Bearer test-cron-secret' },
+  });
+  const cleared = await clear.json();
+  assert.equal(cleared.expiringTokens.includes('test-cafe'), false, 'a distant expiry is not reported');
+});
+
 test('conversations expose threads and record manual replies', async () => {
   const login = await api('/api/auth?action=login', {
     method: 'POST',

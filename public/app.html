@@ -85,6 +85,7 @@
 
   <div class="wrap" style="padding:20px">
     <div id="banner"></div>
+    <div id="waBanner"></div>
 
     <div class="grid-4" style="margin-bottom:18px">
       <div class="stat"><div class="label">Orders</div><div class="value" id="sOrders">—</div></div>
@@ -399,7 +400,28 @@ function renderTenant(tenant) {
     chip.classList.remove('hidden');
   }
   renderBanner(tenant);
+  renderWaBanner(tenant.waAlert);
   renderUsage();
+}
+
+// The shop's WhatsApp token expires 60 days after it was connected. A dead
+// token is invisible on its own — messages arrive and the AI drafts, but every
+// send fails and only the log knows. This puts that on the screen, with the
+// days left, so the owner can reconnect before a customer is left waiting.
+function renderWaBanner(alert) {
+  const el = $('waBanner');
+  if (!alert) { el.className = 'banner hidden'; el.innerHTML = ''; return; }
+  el.className = `banner ${alert.level === 'error' ? 'danger' : 'warn'}`;
+  const icon = alert.level === 'error' ? '⚠️' : '⏳';
+  el.innerHTML = `${icon} <b>${escapeHtml(alert.message)}</b>
+    <button class="btn sm" onclick="openWhatsappTab()">Dobara connect</button>`;
+}
+
+function openWhatsappTab() {
+  document.querySelectorAll('.tab[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'whatsapp'));
+  document.querySelectorAll('.tabpane').forEach((p) => p.classList.add('hidden'));
+  $('tab-whatsapp').classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // Shows how much of the month's AI allowance is left, so the owner can see the
@@ -698,9 +720,17 @@ async function loadWhatsApp() {
   }
 
   const shown = wa.displayNumber || wa.phoneNumberId;
+  const exp = wa.tokenExpiresAt ? new Date(wa.tokenExpiresAt) : null;
+  const expLine = exp
+    ? `<p class="muted" style="margin-top:6px">Token ${exp.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} tak valid hai.</p>`
+    : '';
+  const alertLine = wa.alert
+    ? `<p class="${wa.alert.level === 'error' ? 'error' : 'muted'}" style="margin-top:8px;font-weight:600">${escapeHtml(wa.alert.message)}</p>`
+    : '';
   $('waStatus').innerHTML = wa.connected
     ? `<span class="pill active"><span class="dot"></span>Connected</span>
-       <p class="muted" style="margin-top:10px">Number: <b>${escapeHtml(shown)}</b><br>API: ${escapeHtml(wa.apiVersion)}</p>`
+       <p class="muted" style="margin-top:10px">Number: <b>${escapeHtml(shown)}</b><br>API: ${escapeHtml(wa.apiVersion)}</p>
+       ${expLine}${alertLine}`
     : `<span class="pill qr_pending"><span class="dot"></span>Not connected</span>
        <p class="muted" style="margin-top:10px">Abhi koi WhatsApp number juda nahi hai. Left side se connect karo.</p>`;
   $('waDisconnect').disabled = !wa.connected;
@@ -712,15 +742,14 @@ function renderWaChip() {
   const chip = $('waChip');
   if (!wa) { chip.classList.add('hidden'); return; }
   chip.classList.remove('hidden');
-  chip.className = 'pill ' + (wa.connected ? 'active' : 'qr_pending');
-  chip.innerHTML = `<span class="dot"></span>WhatsApp ${wa.connected ? 'connected' : 'off'}`;
+  const chipState = wa.alert
+    ? (wa.alert.level === 'error' ? 'expired' : 'pending')
+    : (wa.connected ? 'active' : 'qr_pending');
+  chip.className = 'pill ' + chipState;
+  chip.innerHTML = `<span class="dot"></span>WhatsApp ${wa.alert ? 'check karein' : wa.connected ? 'connected' : 'off'}`;
 }
 
-$('waChip').onclick = () => {
-  document.querySelectorAll('.tab[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'whatsapp'));
-  document.querySelectorAll('.tabpane').forEach((p) => p.classList.add('hidden'));
-  $('tab-whatsapp').classList.remove('hidden');
-};
+$('waChip').onclick = () => openWhatsappTab();
 
 $('waForm').onsubmit = async (e) => {
   e.preventDefault();

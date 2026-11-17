@@ -6,6 +6,7 @@ import {
   setOrderPayment,
 } from '../lib/orders.js';
 import { daysLeft } from '../lib/trial.js';
+import { connectionAlert } from '../lib/wahealth.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 const VALID_STATUSES = ['pending', 'confirmed', 'fulfilled', 'cancelled'];
@@ -31,6 +32,9 @@ export default handler(async (req, res) => {
         trialEndsAt: session.trial_ends_at,
         daysLeft: daysLeft(session.trial_ends_at),
         upiId: session.shop_upi_id ?? null,
+        // Whether the WhatsApp connection is healthy, decided in one place so
+        // the banner and the WhatsApp tab cannot disagree.
+        waAlert: connectionAlert(session),
       },
       summary,
       orders,
