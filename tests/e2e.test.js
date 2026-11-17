@@ -2952,3 +2952,368 @@ test('with no email key the dashboard still works, so the chime needs no signup'
   assert.equal(status, 200);
   assert.ok(body.tenant.unseenOrders >= 1, 'the badge count works without any email key');
 });
+
+// -- bouquet photos --------------------------------------------------------
+
+// Poll a condition until it holds, because occasion capture and other side
+// effects are fired without blocking the reply the customer waits for.
+async function pollUntil(fn, { tries = 40, wait = 50 } = {}) {
+  for (let i = 0; i < tries; i += 1) {
+    const value = await fn();
+    if (value) return value;
+    await new Promise((r) => setTimeout(r, wait));
+  }
+  return null;
+}
+
+test('a bouquet photo rides along with a price question, with no AI call', async () => {
+  process.env.PUBLIC_BASE_URL = BASE;
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const { rows } = await query(
+    "SELECT id FROM products WHERE tenant_id = (SELECT id FROM tenants WHERE slug = 'test-cafe') AND name = 'Latte'",
+  );
+  const productId = rows[0].id;
+
+  // A non-image is refused, the same rule the payment QR uses.
+  const bad = await api('/api/shop?photo', {
+    method: 'POST', cookie: login.cookie, body: { product_id: productId, image: 'data:text/plain;base64,aGk=' },
+  });
+  assert.equal(bad.status, 400);
+
+  const saved = await api('/api/shop?photo', {
+    method: 'POST', cookie: login.cookie, body: { product_id: productId, image: QR_PNG },
+  });
+  assert.equal(saved.status, 200);
+  assert.match(saved.body.product.imageUrl, /\/api\/shop\?product=[0-9a-f]{32}$/);
+
+  // The browser is told the URL, never the base64 blob.
+  const listed = await api('/api/products', { cookie: login.cookie });
+  const latte = listed.body.products.find((p) => p.id === productId);
+  assert.equal(latte.imageUrl, saved.body.product.imageUrl);
+  assert.equal(latte.image_token, undefined);
+
+  // The picture is served publicly so WhatsApp can fetch it.
+  const img = await fetch(latte.imageUrl);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.equal(Buffer.from(await img.arrayBuffer()).toString('base64'), QR_PNG.split(',')[1]);
+
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const savedEnv = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'photo-key';
+
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.SENT' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const payload = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550002222', text: 'Latte ka price kya hai?', id: 'wamid.PHOTO1',
+    });
+    const { raw, sig } = signedWebhook(payload);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+      body: raw,
+    });
+
+    assert.equal(sent.length, 1, 'one WhatsApp message is sent');
+    assert.equal(sent[0].type, 'image', 'and it is the bouquet photo');
+    assert.equal(sent[0].image.link, latte.imageUrl);
+    assert.match(sent[0].image.caption, /Latte/);
+    assert.match(sent[0].image.caption, /₹/);
+    assert.equal(fake.seen.length, 0, 'the price answer costs no AI call');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = savedEnv;
+    await new Promise((r) => fake.server.close(r));
+    await api('/api/shop?photo', {
+      method: 'POST', cookie: login.cookie, body: { product_id: productId, image: '' },
+    });
+  }
+});
+
+// -- occasions -------------------------------------------------------------
+
+test('a birthday in a card message is remembered, then surfaced and dismissed', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const tenantId = (await query("SELECT id FROM tenants WHERE slug = 'test-cafe'")).rows[0].id;
+  await query('DELETE FROM customer_occasions WHERE tenant_id = $1', [tenantId]);
+
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+  const payload = inboundPayload({
+    phoneNumberId: 'PHONE1',
+    from: '15550003333',
+    text: 'Happy Birthday Rahul, 15 August ko gulab bhej do',
+    id: 'wamid.OCC1',
+  });
+  const { raw, sig } = signedWebhook(payload);
+  await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+
+  // Capture is fired without blocking the reply, so give it a moment.
+  const occasion = await pollUntil(async () => {
+    const { rows } = await query(
+      "SELECT id, kind, on_date::text AS on_date, note FROM customer_occasions WHERE tenant_id = $1 AND kind = 'birthday'",
+      [tenantId],
+    );
+    return rows[0] ?? null;
+  });
+  assert.ok(occasion, 'the birthday is remembered from the card message');
+  assert.match(occasion.on_date, /-08-15$/, 'the day and month are kept, the year is not');
+  assert.equal(occasion.note, 'Rahul', 'the name on the card is kept for the reminder');
+
+  // Bring the occasion into the five-day window, then it must show on the board.
+  const inTwoDays = new Date(Date.now() + 5.5 * 3600 * 1000 + 2 * 86_400_000)
+    .toISOString().slice(0, 10);
+  await query(
+    'UPDATE customer_occasions SET on_date = $2, reminded_on = NULL WHERE id = $1',
+    [occasion.id, inTwoDays],
+  );
+  const list = await api('/api/dashboard?occasions', { cookie: login.cookie });
+  assert.equal(list.status, 200);
+  const shown = list.body.occasions.find((o) => o.id === occasion.id);
+  assert.ok(shown, 'the upcoming occasion is on the dashboard');
+  assert.equal(shown.daysAway, 2);
+  assert.equal(shown.kind, 'birthday');
+
+  // Dismissing it clears it, so the same birthday is not shown again.
+  const seen = await api('/api/dashboard?occasions-seen', {
+    method: 'POST', cookie: login.cookie, body: { ids: [occasion.id] },
+  });
+  assert.equal(seen.status, 200);
+  const after = await api('/api/dashboard?occasions', { cookie: login.cookie });
+  assert.equal(after.body.occasions.find((o) => o.id === occasion.id), undefined);
+});
+
+test('a message with no date is not remembered as an occasion', async () => {
+  const tenantId = (await query("SELECT id FROM tenants WHERE slug = 'test-cafe'")).rows[0].id;
+  const before = (await query(
+    'SELECT COUNT(*)::int AS n FROM customer_occasions WHERE tenant_id = $1', [tenantId],
+  )).rows[0].n;
+
+  const payload = inboundPayload({
+    phoneNumberId: 'PHONE1',
+    from: '15550004444',
+    text: 'meri mummy ka birthday aa raha hai',
+    id: 'wamid.OCC2',
+  });
+  const { raw, sig } = signedWebhook(payload);
+  await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  const after = (await query(
+    'SELECT COUNT(*)::int AS n FROM customer_occasions WHERE tenant_id = $1', [tenantId],
+  )).rows[0].n;
+  assert.equal(after, before, 'no date means nothing is remembered');
+});
+
+// -- festival broadcast ----------------------------------------------------
+
+test('a festival broadcast reaches the customers and reports the truth', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const empty = await api('/api/dashboard?broadcast', {
+    method: 'POST', cookie: login.cookie, body: { message: '   ' },
+  });
+  assert.equal(empty.status, 400);
+
+  const started = await api('/api/dashboard?broadcast', {
+    method: 'POST', cookie: login.cookie,
+    body: { message: 'Diwali dhamaka: saare bouquets par 20% off! 🌸', audience: 'all' },
+  });
+  assert.equal(started.status, 201);
+  assert.ok(started.body.total >= 1, 'there is a customer list to send to');
+  const broadcastId = started.body.broadcast.id;
+
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.BC' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  let result;
+  try {
+    result = await api(`/api/dashboard?broadcast-run=${broadcastId}`, {
+      method: 'POST', cookie: login.cookie,
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(result.status, 200);
+  assert.ok(result.body.sent >= 1, 'at least one customer got the offer');
+  assert.equal(result.body.remaining, 0, 'the whole list is done in one batch here');
+  assert.ok(sent.length >= 1);
+  assert.equal(sent[0].text.body, 'Diwali dhamaka: saare bouquets par 20% off! 🌸');
+
+  const history = await api('/api/dashboard?broadcasts', { cookie: login.cookie });
+  const row = history.body.broadcasts.find((b) => b.id === broadcastId);
+  assert.ok(row, 'the send is in the history');
+  assert.equal(row.status, 'done');
+  assert.equal(row.sent_count, result.body.sent);
+  assert.ok(row.skipped_count >= 0, 'customers outside the 24h window are counted, not hidden');
+});
+
+// -- CRM -------------------------------------------------------------------
+
+test('the customer list shows spend, repeats and the next occasion', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const { status, body } = await api('/api/conversations?customers', { cookie: login.cookie });
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(body.customers));
+  assert.ok(body.customers.length >= 1, 'the people who have ordered are listed');
+  assert.ok(body.stats.total >= 1);
+
+  const buyer = body.customers.find((c) => c.order_count >= 1);
+  assert.ok(buyer, 'a customer with an order is listed');
+  assert.ok(buyer.spend_cents >= 0);
+  assert.ok('next_occasion' in buyer);
+});
+
+// -- delivered photo -------------------------------------------------------
+
+test('the delivered photo is sent to the customer once, when the order is fulfilled', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+  const tenantId = (await query("SELECT id FROM tenants WHERE slug = 'test-cafe'")).rows[0].id;
+  const { rows: cust } = await query(
+    `INSERT INTO customers (tenant_id, wa_id, display_name)
+     VALUES ($1, '15550005555', 'Delivery Photo Buyer') RETURNING id`,
+    [tenantId],
+  );
+  const { rows: ord } = await query(
+    `INSERT INTO orders (tenant_id, customer_id, total_cents, status, payment_status,
+                         fulfilment, delivery_address, recipient_name)
+     VALUES ($1, $2, 50000, 'pending', 'paid', 'delivery', '12 Gandhi Road', 'Rahul')
+     RETURNING id`,
+    [tenantId, cust[0].id],
+  );
+  const orderId = ord[0].id;
+
+  const upload = await api('/api/shop?delivery-photo', {
+    method: 'POST', cookie: login.cookie, body: { order_id: orderId, image: QR_PNG },
+  });
+  assert.equal(upload.status, 200);
+
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.DP' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const fulfilled = await api(`/api/dashboard?order_id=${orderId}`, {
+      method: 'POST', cookie: login.cookie, body: { status: 'fulfilled' },
+    });
+    assert.equal(fulfilled.status, 200);
+    assert.equal(fulfilled.body.deliveryPhoto.sent, true);
+    assert.equal(sent.length, 1, 'the customer gets one picture');
+    assert.equal(sent[0].type, 'image');
+    assert.match(sent[0].image.link, /\/api\/shop\?delivery=[0-9a-f]{32}$/);
+    assert.match(sent[0].image.caption, /pahunch gaye/);
+
+    // The same picture must not go out again on a second fulfilment click.
+    const again = await api(`/api/dashboard?order_id=${orderId}`, {
+      method: 'POST', cookie: login.cookie, body: { status: 'fulfilled' },
+    });
+    assert.equal(again.status, 200);
+    assert.equal(again.body.deliveryPhoto.sent, false);
+    assert.equal(sent.length, 1, 'still just the one picture');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('an order with no delivered photo fulfils cleanly and sends nothing', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+  const tenantId = (await query("SELECT id FROM tenants WHERE slug = 'test-cafe'")).rows[0].id;
+  const { rows: cust } = await query(
+    `INSERT INTO customers (tenant_id, wa_id, display_name)
+     VALUES ($1, '15550006666', 'No Photo Buyer') RETURNING id`,
+    [tenantId],
+  );
+  const { rows: ord } = await query(
+    `INSERT INTO orders (tenant_id, customer_id, total_cents, status, payment_status, fulfilment)
+     VALUES ($1, $2, 10000, 'pending', 'paid', 'pickup') RETURNING id`,
+    [tenantId, cust[0].id],
+  );
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.NP' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+  try {
+    const res = await api(`/api/dashboard?order_id=${ord[0].id}`, {
+      method: 'POST', cookie: login.cookie, body: { status: 'fulfilled' },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.deliveryPhoto.sent, false);
+    assert.equal(res.body.deliveryPhoto.reason, 'no_photo');
+    assert.equal(sent.length, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

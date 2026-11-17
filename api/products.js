@@ -1,5 +1,6 @@
 import { query } from '../lib/db.js';
 import { requireSession, assertTenantWritable } from '../lib/auth.js';
+import { photoUrl } from '../lib/photos.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 // GET    /api/products         -> the shop's catalog
@@ -13,13 +14,19 @@ export default handler(async (req, res) => {
 
   if (req.method === 'GET') {
     const { rows } = await query(
-      `SELECT id, sku, name, description, price_cents, currency, active, is_sample
+      `SELECT id, sku, name, description, price_cents, currency, active, is_sample, image_token
          FROM products
         WHERE tenant_id = $1
         ORDER BY active DESC, name ASC`,
       [session.tenant_id],
     );
-    json(res, 200, { products: rows });
+    // The browser gets the public URL, never the base64 blob.
+    json(res, 200, {
+      products: rows.map(({ image_token: imageToken, ...p }) => ({
+        ...p,
+        imageUrl: imageToken ? photoUrl('product', imageToken) : null,
+      })),
+    });
     return;
   }
 

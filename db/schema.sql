@@ -393,3 +393,92 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   count        INTEGER NOT NULL DEFAULT 0,
   window_start TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- Bouquet photos
+-- ---------------------------------------------------------------------------
+-- A florist's catalogue is a picture, not a line of text: a customer who cannot
+-- see the bouquet does not buy it. Each product can carry one photo, stored as
+-- a data URL so no file host is needed, and served under an unguessable token
+-- so WhatsApp can fetch it when the AI sends it to a customer.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS image_token TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS image_data  TEXT;
+CREATE INDEX IF NOT EXISTS products_image_token_idx ON products (image_token)
+  WHERE image_token IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Post-delivery photo
+-- ---------------------------------------------------------------------------
+-- The photo of the flowers that actually went out, sent to the customer with a
+-- thank-you. It is the one proof that the shop did the work, and it is what
+-- turns a first order into a repeat one. Stored and served the same way as a
+-- catalogue photo.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_photo_token   TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_photo_data    TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_photo_sent_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS orders_delivery_photo_token_idx ON orders (delivery_photo_token)
+  WHERE delivery_photo_token IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Occasions (birthday / anniversary memory)
+-- ---------------------------------------------------------------------------
+-- A flower shop runs on repeat orders, and the repeat is an occasion: the same
+-- customer's birthday, their anniversary, a yearly remembrance. Remembering the
+-- date for the owner is the single most valuable thing the app can do, because
+-- it turns a one-time buyer into a customer who comes back every year. The date
+-- is stored on its own so a reminder can compare month and day, and
+-- `reminded_on` keeps the same occasion from being nudged twice.
+CREATE TABLE IF NOT EXISTS customer_occasions (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  customer_id  UUID NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL CHECK (kind IN ('birthday', 'anniversary', 'other')),
+  label        TEXT,
+  on_date      DATE NOT NULL,
+  note         TEXT,
+  reminded_on  DATE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, customer_id, kind, on_date)
+);
+
+CREATE INDEX IF NOT EXISTS customer_occasions_tenant_idx ON customer_occasions (tenant_id, on_date);
+CREATE INDEX IF NOT EXISTS customer_occasions_customer_idx ON customer_occasions (customer_id);
+
+-- ---------------------------------------------------------------------------
+-- Broadcasts (festival offers)
+-- ---------------------------------------------------------------------------
+-- Diwali and Valentine's are where a flower shop makes its year, and the offer
+-- has to reach every past customer at once. The owner writes the message, so
+-- nothing here costs a model call. A broadcast is a job with a per-recipient
+-- outcome, so the owner is told exactly how many customers actually got it
+-- rather than a single "sent" that hides the truth.
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id      UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  body           TEXT NOT NULL,
+  audience       TEXT NOT NULL DEFAULT 'all'
+                 CHECK (audience IN ('all', 'open_window', 'repeat')),
+  status         TEXT NOT NULL DEFAULT 'sending'
+                 CHECK (status IN ('sending', 'done', 'failed')),
+  sent_count     INTEGER NOT NULL DEFAULT 0,
+  failed_count   INTEGER NOT NULL DEFAULT 0,
+  skipped_count  INTEGER NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS broadcasts_tenant_idx ON broadcasts (tenant_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS broadcast_recipients (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id     UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  broadcast_id  UUID NOT NULL REFERENCES broadcasts (id) ON DELETE CASCADE,
+  customer_id   UUID REFERENCES customers (id) ON DELETE SET NULL,
+  status        TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),
+  error         TEXT,
+  sent_at       TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS broadcast_recipients_broadcast_idx
+  ON broadcast_recipients (broadcast_id, status);

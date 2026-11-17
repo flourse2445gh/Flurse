@@ -130,6 +130,8 @@
         <button class="tab on" data-tab="chats">💬 Chats</button>
         <button class="tab" data-tab="orders">🧾 Orders</button>
         <button class="tab" data-tab="catalog">📋 Catalog</button>
+        <button class="tab" data-tab="customers">👥 Customers</button>
+        <button class="tab" data-tab="broadcast">📣 Offers</button>
         <button class="tab" data-tab="whatsapp">🔗 WhatsApp</button>
         <button class="tab" data-tab="settings">🏪 Shop profile</button>
       </div>
@@ -163,7 +165,7 @@
     <section id="tab-orders" class="tabpane hidden">
       <div class="card flat" style="padding:6px 16px 16px;overflow-x:auto">
         <table>
-          <thead><tr><th>When</th><th>Customer</th><th>Items</th><th>Delivery</th><th>Total</th><th>Payment</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>When</th><th>Customer</th><th>Items</th><th>Delivery</th><th>Total</th><th>Payment</th><th>Status</th><th>Photo</th><th></th></tr></thead>
           <tbody id="ordersBody"></tbody>
         </table>
       </div>
@@ -174,7 +176,7 @@
       <div class="grid-2" style="grid-template-columns:1fr 340px;align-items:start">
         <div class="card flat" style="padding:6px 16px 16px;overflow-x:auto">
           <table>
-            <thead><tr><th>Item</th><th>Price</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Photo</th><th>Item</th><th>Price</th><th>Status</th><th></th></tr></thead>
             <tbody id="productsBody"></tbody>
           </table>
         </div>
@@ -190,6 +192,73 @@
               <button class="btn ghost hidden" type="button" id="prodCancel">Cancel</button>
             </div>
           </form>
+          <p class="muted" style="margin:12px 0 0;font-size:11.5px">
+            💡 Bouquet ki photo add karein — customer price poochhega to AI photo ke saath
+            reply karega. Photo ke bina text hi jayega.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- CUSTOMERS (CRM) -->
+    <section id="tab-customers" class="tabpane hidden">
+      <div class="card tight flat" style="padding:14px 16px;margin-bottom:14px;background:var(--brand-soft);border:none">
+        <div class="row-between" style="flex-wrap:wrap;gap:10px">
+          <div>
+            <b style="font-size:13.5px">Aapka asli asset — customer list 🎁</b>
+            <p class="muted" style="margin:4px 0 0;font-size:12px">
+              Jinhone pehle order kiya, unhe yaad rakhein. Occasion aa raha hai to owner ko
+              pehle se pata chalta hai.
+            </p>
+          </div>
+          <div class="row" style="gap:18px" id="crmStats"></div>
+        </div>
+      </div>
+      <div id="occBanner" class="hidden card flat" style="padding:14px 16px;margin-bottom:14px;border:1px solid rgba(37,211,102,.35);background:rgba(37,211,102,.06)"></div>
+      <div class="card flat" style="padding:6px 16px 16px;overflow-x:auto">
+        <table>
+          <thead><tr><th>Customer</th><th>Orders</th><th>Spent</th><th>Last order</th><th>Next occasion</th><th></th></tr></thead>
+          <tbody id="customersBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- OFFERS (broadcast) -->
+    <section id="tab-broadcast" class="tabpane hidden">
+      <div class="grid-2" style="grid-template-columns:1fr 380px;align-items:start">
+        <div class="card">
+          <h3>Festival offer bhejein — sab customers ko 📣</h3>
+          <p class="muted" style="margin:6px 0 16px">
+            Diwali, Valentine's, Raksha Bandhan — ek hi baar me poori customer list ko
+            apna offer bhej dein. Message aap likhein, AI ka ek paisa nahi lagega.
+          </p>
+          <form id="bcForm" class="stack">
+            <div class="field">
+              <label for="bcMessage">Offer ka message</label>
+              <textarea id="bcMessage" rows="5" maxlength="900" placeholder="🌸 Diwali dhamaka! Is hafte saare bouquets par 20% off. Aaj hi order karein — 9999999999" style="resize:vertical;font-family:inherit"></textarea>
+              <p class="muted" style="margin:6px 0 0;font-size:11px"><span id="bcCount">0</span>/900</p>
+            </div>
+            <div class="field">
+              <label for="bcAudience">Kisko bhejein</label>
+              <select id="bcAudience">
+                <option value="open_window">Sirf woh jinka chat window khula hai (safe — abhi pahunchega)</option>
+                <option value="all">Saare customers (window band walon ko skip kiya jayega)</option>
+                <option value="repeat">Sirf repeat customers (2+ order)</option>
+              </select>
+            </div>
+            <div class="error" id="bcError"></div>
+            <button class="btn block" type="submit" id="bcSubmit">Offer bhejein</button>
+          </form>
+          <div id="bcProgress" class="hidden" style="margin-top:14px"></div>
+          <p class="muted" style="margin:14px 0 0;font-size:11.5px">
+            WhatsApp niyam: free message sirf tab jayega jab customer ne 24 ghante me
+            message kiya ho. Baaki log skip honge — aur aapko sach dikhega, "sab bhej diya"
+            nahi.
+          </p>
+        </div>
+        <div class="card">
+          <h3 style="font-size:14px">Purane offers</h3>
+          <div id="bcHistory" class="stack" style="margin-top:10px"></div>
         </div>
       </div>
     </section>
@@ -358,7 +427,7 @@
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script src="/assets/app.js"></script>
 <script>
-const state = { tenant: null, orders: [], conversations: [], activeConv: null, products: [], wa: null };
+const state = { tenant: null, orders: [], conversations: [], activeConv: null, products: [], wa: null, customers: [], crmStats: null, occasions: [], broadcasts: [] };
 
 // ---- auth ----------------------------------------------------------------
 // `which` is 'login' | 'signup' | 'forgot' | 'reset'. The reset screen is
@@ -456,6 +525,9 @@ async function enterApp() {
   renderOrders();
   renderSoundBtn();
   await Promise.all([loadConversations(), loadProducts(), loadWhatsApp(), loadSettings()]);
+  // The CRM list and the offers tab are only fetched once the owner opens them,
+  // so a shop with a big customer list does not pay for it on every login.
+  loadOccasions().catch(() => {});
 
   // A new order since the last look gets a chime — the owner should not have to
   // stare at the screen. The very first load stays silent: those orders were
@@ -762,7 +834,7 @@ function paymentCell(o) {
 
 function renderOrders() {
   const body = $('ordersBody');
-  if (!state.orders.length) { body.innerHTML = '<tr><td colspan="8" class="empty">Abhi koi order nahi. Customer ka WhatsApp message aate hi yahan dikhega.</td></tr>'; return; }
+  if (!state.orders.length) { body.innerHTML = '<tr><td colspan="9" class="empty">Abhi koi order nahi. Customer ka WhatsApp message aate hi yahan dikhega.</td></tr>'; return; }
   const locked = state.tenant.status === 'suspended' || state.tenant.status === 'cancelled';
   body.innerHTML = state.orders.map((o) => {
     const items = (o.items || []).map((i) => `${i.quantity}× ${escapeHtml(i.name)}`).join(', ') || '—';
@@ -782,12 +854,46 @@ function renderOrders() {
       <td><b>${rupees(o.total_cents)}</b></td>
       <td>${paymentCell(o)}</td>
       <td><span class="pill ${o.status}">${o.status}</span></td>
+      <td>${deliveryPhotoCell(o)}</td>
       <td><div class="row" style="gap:6px;flex-wrap:wrap">${buttons.join('')}</div></td>
     </tr>`;
   }).join('');
 }
 
+// The delivered-photo cell. Before an order is fulfilled the owner can upload
+// the picture of the flowers that went out; once sent, the cell says so. This
+// is the trust builder and the upselling nudge, so it lives right in the row.
+function deliveryPhotoCell(o) {
+  const sent = o.delivery_photo_sent_at;
+  const has = o.delivery_photo_token;
+  if (sent) return '<span class="pill fulfilled">sent ✓</span>';
+  if (has) return `<span class="pill trialing">ready</span><div style="margin-top:4px"><button class="btn ghost sm" data-dphoto="${o.id}">Bhejo</button></div>`;
+  return `<label class="btn ghost sm" style="cursor:pointer">📷 Upload<input type="file" accept="image/png,image/jpeg,image/webp" data-dphoto-up="${o.id}" style="display:none"></label>`;
+}
+
+// Reads an image file as a data URL for upload. Rejects oversized files up
+// front so the owner is told before a slow upload, matching the server rule.
+function readImageFile(file, maxBytes = 400 * 1024) {
+  return new Promise((resolve, reject) => {
+    if (file.size > maxBytes) { reject(new Error('Photo 400 KB se choti honi chahiye')); return; }
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Photo padhi nahi ja saki'));
+    reader.readAsDataURL(file);
+  });
+}
+
 $('ordersBody').onclick = async (e) => {
+  const photoBtn = e.target.closest('[data-dphoto]');
+  if (photoBtn) {
+    photoBtn.disabled = true;
+    try {
+      await api(`/api/dashboard?order_id=${photoBtn.dataset.dphoto}&send-photo=1`, { method: 'POST' });
+      await refreshOrders();
+      toast('Delivery photo customer ko bhej di 📷');
+    } catch (err) { toast(err.message); photoBtn.disabled = false; }
+    return;
+  }
   const btn = e.target.closest('button[data-order]');
   if (!btn) return;
   btn.disabled = true;
@@ -799,14 +905,34 @@ $('ordersBody').onclick = async (e) => {
     ? { payment_status: 'paid', method: 'upi' }
     : { status: btn.dataset.status };
   try {
-    await api(path, { method: 'POST', body: JSON.stringify(body) });
-    const data = await api('/api/dashboard');
-    state.orders = data.orders;
-    renderSummary(data.summary);
-    renderOrders();
-    toast(isPayment ? 'Payment mil gaya ✅' : `Order → ${btn.dataset.status}`);
+    const res = await api(path, { method: 'POST', body: JSON.stringify(body) });
+    await refreshOrders();
+    if (res.deliveryPhoto && res.deliveryPhoto.sent) toast('Order done ✅ Delivery photo bhi chali gayi 📷');
+    else toast(isPayment ? 'Payment mil gaya ✅' : `Order → ${btn.dataset.status}`);
   } catch (err) { toast(err.message); btn.disabled = false; }
 };
+
+$('ordersBody').onchange = async (e) => {
+  const input = e.target.closest('[data-dphoto-up]');
+  if (!input || !input.files.length) return;
+  try {
+    const image = await readImageFile(input.files[0]);
+    await api('/api/shop?delivery-photo', {
+      method: 'POST', body: JSON.stringify({ order_id: input.dataset.dphotoUp, image }),
+    });
+    await refreshOrders();
+    toast('Photo lag gayi — order fulfil karte hi customer ko jayegi 📷');
+  } catch (err) { toast(err.message); }
+  input.value = '';
+};
+
+async function refreshOrders() {
+  const data = await api('/api/dashboard');
+  state.tenant = data.tenant;
+  state.orders = data.orders;
+  renderSummary(data.summary);
+  renderOrders();
+}
 
 // ---- conversations -------------------------------------------------------
 async function loadConversations() {
@@ -888,8 +1014,11 @@ async function loadProducts() {
 
 function renderProducts() {
   const body = $('productsBody');
-  if (!state.products.length) { body.innerHTML = '<tr><td colspan="4" class="empty">Catalog khaali hai. Right side se items add karo.</td></tr>'; return; }
+  if (!state.products.length) { body.innerHTML = '<tr><td colspan="5" class="empty">Catalog khaali hai. Right side se items add karo.</td></tr>'; return; }
   body.innerHTML = state.products.map((p) => `<tr>
+    <td>${p.imageUrl
+      ? `<img src="${escapeHtml(p.imageUrl)}" alt="" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">`
+      : `<label class="btn ghost sm" style="cursor:pointer">📷 Add<input type="file" accept="image/png,image/jpeg,image/webp" data-prod-photo="${p.id}" style="display:none"></label>`}</td>
     <td><b>${escapeHtml(p.name)}</b>${p.description ? `<div class="muted" style="font-size:11.5px">${escapeHtml(p.description)}</div>` : ''}</td>
     <td><b>${rupees(p.price_cents)}</b>${p.is_sample ? '<div class="muted" style="font-size:11px">sample price</div>' : ''}</td>
     <td><span class="pill ${p.active ? 'active' : 'cancelled'}">${p.active ? 'active' : 'hidden'}</span></td>
@@ -899,6 +1028,20 @@ function renderProducts() {
     </td>
   </tr>`).join('');
 }
+
+$('productsBody').onchange = async (e) => {
+  const input = e.target.closest('[data-prod-photo]');
+  if (!input || !input.files.length) return;
+  try {
+    const image = await readImageFile(input.files[0]);
+    await api('/api/shop?photo', {
+      method: 'POST', body: JSON.stringify({ product_id: input.dataset.prodPhoto, image }),
+    });
+    await loadProducts();
+    toast('Bouquet photo lag gayi — ab price sawaal par ye jayegi 📷');
+  } catch (err) { toast(err.message); }
+  input.value = '';
+};
 
 $('productsBody').onclick = async (e) => {
   const edit = e.target.closest('[data-edit]');
@@ -941,6 +1084,176 @@ function resetProdForm() {
   $('prodSubmit').textContent = 'Add to catalog';
   $('prodCancel').classList.add('hidden');
 }
+
+// ---- customers (CRM) -----------------------------------------------------
+// The list underneath the chats: who buys, how much, and whose occasion is
+// coming. This is the repeat-order base a flower shop runs on.
+async function loadCustomers() {
+  const { customers, stats } = await api('/api/conversations?customers');
+  state.customers = customers;
+  state.crmStats = stats;
+  renderCustomers();
+}
+
+function renderCustomers() {
+  const s = state.crmStats || {};
+  $('crmStats').innerHTML = `
+    <div><div class="label muted" style="font-size:10.5px">Customers</div><b style="font-size:16px">${s.total ?? 0}</b></div>
+    <div><div class="label muted" style="font-size:10.5px">Repeat</div><b style="font-size:16px">${s.repeat_customers ?? 0}</b></div>
+    <div><div class="label muted" style="font-size:10.5px">Occasions</div><b style="font-size:16px">${s.occasions_known ?? 0}</b></div>`;
+
+  const body = $('customersBody');
+  if (!state.customers.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty">Abhi koi customer nahi. Pehla WhatsApp order aate hi yahan dikhega.</td></tr>';
+    return;
+  }
+  body.innerHTML = state.customers.map((c) => {
+    const name = escapeHtml(c.display_name || c.wa_id);
+    const occ = c.next_occasion
+      ? `<span class="pill trialing">${escapeHtml(c.next_occasion.label || 'Occasion')}</span>
+         <div class="muted" style="font-size:11px;margin-top:2px">${formatDay(c.next_occasion.onDate)}</div>`
+      : '<span class="muted" style="font-size:11.5px">—</span>';
+    const repeat = c.order_count >= 2 ? ' <span class="pill active" style="font-size:9px">repeat</span>' : '';
+    return `<tr>
+      <td><b>${name}</b>${repeat}<div class="muted" style="font-size:11px">${escapeHtml(c.wa_id)}</div></td>
+      <td>${c.order_count}</td>
+      <td><b>${rupees(c.spend_cents)}</b></td>
+      <td class="muted">${c.last_order_at ? timeAgo(c.last_order_at) : '—'}</td>
+      <td>${occ}</td>
+      <td><button class="btn ghost sm" data-msg="${c.id}">Message</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// A short, human date for an occasion, so the owner sees "15 Aug" not an ISO
+// string. The year is deliberately dropped: a birthday repeats every year.
+function formatDay(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleDateString('en-IN', { timeZone: 'UTC', day: 'numeric', month: 'short' });
+}
+
+$('customersBody').onclick = async (e) => {
+  const btn = e.target.closest('[data-msg]');
+  if (!btn) return;
+  const c = state.customers.find((x) => x.id === btn.dataset.msg);
+  const text = prompt(`Message to ${c.display_name || c.wa_id}:`, '');
+  if (!text) return;
+  try {
+    const r = await api('/api/conversations', {
+      method: 'POST', body: JSON.stringify({ customer_id: c.id, body: text }),
+    });
+    toast(r.delivered ? 'Message bhej diya ✅' : 'Message save ho gaya (WhatsApp connect nahi)');
+  } catch (err) { toast(err.message); }
+};
+
+// The occasion banner on the customers tab: the birthdays and anniversaries
+// the shop remembered, shown so the owner can act before the day arrives.
+async function loadOccasions() {
+  const { occasions } = await api('/api/dashboard?occasions');
+  state.occasions = occasions;
+  renderOccBanner();
+}
+
+function renderOccBanner() {
+  const el = $('occBanner');
+  if (!state.occasions.length) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const rows = state.occasions.map((o) => {
+    const who = escapeHtml(o.customerName || o.waId);
+    const when = o.daysAway === 0 ? 'aaj' : o.daysAway === 1 ? 'kal' : `${o.daysAway} din me`;
+    return `<div class="row-between" style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,.06)">
+      <span>🎂 <b>${who}</b> — ${escapeHtml(o.label || 'Occasion')}${o.note ? ` (${escapeHtml(o.note)})` : ''}</span>
+      <span class="pill trialing">${when} · ${formatDay(o.onDate)}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="row-between" style="margin-bottom:6px">
+      <b style="font-size:13px">Khaas din aa rahe hain 🎉</b>
+      <button class="btn ghost sm" id="occDismiss">Theek hai</button>
+    </div>${rows}
+    <p class="muted" style="margin:8px 0 0;font-size:11.5px">
+      Aaj hi ek message ya call kar dijiye — phool ka order khud aa jayega.
+    </p>`;
+  $('occDismiss').onclick = async () => {
+    try {
+      await api('/api/dashboard?occasions-seen', {
+        method: 'POST', body: JSON.stringify({ ids: state.occasions.map((o) => o.id) }),
+      });
+      state.occasions = [];
+      renderOccBanner();
+      toast('Occasion reminders hataye gaye');
+    } catch (err) { toast(err.message); }
+  };
+}
+
+// ---- offers (broadcast) --------------------------------------------------
+// The festival offer the owner writes and sends to the whole list. The owner's
+// own words, so no AI cost; the WhatsApp send is the only cost, and it is
+// counted honestly per recipient.
+async function loadBroadcasts() {
+  const { broadcasts } = await api('/api/dashboard?broadcasts');
+  state.broadcasts = broadcasts;
+  renderBroadcasts();
+}
+
+function renderBroadcasts() {
+  const el = $('bcHistory');
+  if (!state.broadcasts.length) { el.innerHTML = '<p class="muted" style="font-size:12px">Abhi koi offer nahi bheja.</p>'; return; }
+  el.innerHTML = state.broadcasts.map((b) => {
+    const when = timeAgo(b.created_at);
+    const parts = [`✅ ${b.sent_count} bheja`];
+    if (b.skipped_count) parts.push(`⏭️ ${b.skipped_count} skip`);
+    if (b.failed_count) parts.push(`⚠️ ${b.failed_count} fail`);
+    return `<div class="card tight flat" style="padding:10px 12px">
+      <div class="muted" style="font-size:10.5px">${when} · ${b.audience === 'repeat' ? 'repeat customers' : b.audience === 'open_window' ? 'open window' : 'sab'}</div>
+      <div style="font-size:12.5px;margin:4px 0">${escapeHtml(b.body).slice(0, 120)}</div>
+      <div style="font-size:11.5px">${parts.join(' · ')}</div>
+    </div>`;
+  }).join('');
+}
+
+$('bcMessage').oninput = () => { $('bcCount').textContent = $('bcMessage').value.length; };
+
+$('bcForm').onsubmit = async (e) => {
+  e.preventDefault();
+  $('bcError').textContent = '';
+  const message = $('bcMessage').value.trim();
+  if (!message) { $('bcError').textContent = 'Message likhein'; return; }
+  const btn = $('bcSubmit');
+  btn.disabled = true;
+  try {
+    const started = await api('/api/dashboard?broadcast', {
+      method: 'POST', body: JSON.stringify({ message, audience: $('bcAudience').value }),
+    });
+    $('bcProgress').classList.remove('hidden');
+    $('bcProgress').innerHTML = `<p class="muted" style="font-size:12px">${started.total} customers ko bhej rahe hain…</p>`;
+    // Send in batches so one request never has to reach the whole list; the
+    // server says when there is nothing left.
+    let guard = 0;
+    let remaining = started.total;
+    let sent = 0;
+    while (remaining > 0 && guard < 40) {
+      guard += 1;
+      const r = await api(`/api/dashboard?broadcast-run=${started.broadcast.id}`, { method: 'POST' });
+      sent += r.sent;
+      remaining = r.remaining;
+      $('bcProgress').innerHTML = `<p class="muted" style="font-size:12px">Bheja: ${sent} · baaki: ${remaining}</p>`;
+      if (!remaining) {
+        const summary = r.summary || {};
+        $('bcProgress').innerHTML = `<div class="card tight flat" style="padding:10px 12px;background:var(--brand-soft)">
+          <b style="font-size:12.5px">Ho gaya ✅</b>
+          <div style="font-size:12px;margin-top:4px">✅ ${summary.sent_count ?? sent} bheja · ⏭️ ${summary.skipped_count ?? 0} skip · ⚠️ ${summary.failed_count ?? 0} fail</div>
+        </div>`;
+      }
+    }
+    $('bcMessage').value = '';
+    $('bcCount').textContent = '0';
+    await loadBroadcasts();
+    toast('Offer bhej diya 📣');
+  } catch (err) { $('bcError').textContent = err.message; }
+  finally { btn.disabled = false; }
+};
 
 // ---- whatsapp ------------------------------------------------------------
 async function loadWhatsApp() {

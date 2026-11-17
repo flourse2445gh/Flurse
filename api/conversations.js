@@ -2,10 +2,12 @@ import { query } from '../lib/db.js';
 import { requireSession, assertTenantWritable } from '../lib/auth.js';
 import { sendWhatsAppText } from '../lib/whatsapp.js';
 import { recordOutboundMessage } from '../lib/orders.js';
+import { customerList, customerStats } from '../lib/customers.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 // GET  /api/conversations            -> customer threads, newest activity first
 // GET  /api/conversations?id=<uuid>  -> one thread with its full message history
+// GET  /api/conversations?customers  -> the CRM list (spend, repeats, occasion)
 // POST /api/conversations            -> record a manual reply (and send it if
 //                                       the shop's WhatsApp number is connected)
 export default handler(async (req, res) => {
@@ -57,7 +59,21 @@ export default handler(async (req, res) => {
 
   if (!requireMethod(req, res, ['GET'])) return;
 
-  const id = new URL(req.url, 'http://localhost').searchParams.get('id');
+  const params = new URL(req.url, 'http://localhost').searchParams;
+
+  // The CRM list: the customers underneath the chats, with what they are worth
+  // and when their next occasion is. This is the repeat-order base a flower
+  // shop runs on, so it gets its own view rather than being buried in threads.
+  if (params.has('customers')) {
+    const [customers, stats] = await Promise.all([
+      customerList(session.tenant_id),
+      customerStats(session.tenant_id),
+    ]);
+    json(res, 200, { customers, stats });
+    return;
+  }
+
+  const id = params.get('id');
 
   if (id) {
     const { rows: customers } = await query(

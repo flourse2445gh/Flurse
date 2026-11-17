@@ -8,6 +8,7 @@ import {
 } from '../lib/orders.js';
 import { handler, readRaw, json, error, requireMethod } from '../lib/http.js';
 import { recordSendOutcome } from '../lib/wahealth.js';
+import { productPhotoUrl } from '../lib/photos.js';
 import { emailNewOrder } from '../lib/notify.js';
 
 // GET /api/webhook  — Meta's subscription handshake
@@ -166,6 +167,37 @@ async function handleMessage(message) {
   if (!result) return; // duplicate delivery
 
   if (tenant.wa_access_token) {
+    // A price question about a named bouquet is answered with its picture, so
+    // the customer sees what they are buying. Same free path, still no model.
+    const photoUrl = result.photoItem
+      ? await productPhotoUrl(tenant.id, result.photoItem.productId)
+      : null;
+    if (photoUrl) {
+      try {
+        await sendWhatsAppImage({
+          phoneNumberId: tenant.wa_phone_number_id,
+          accessToken: tenant.wa_access_token,
+          to: message.from,
+          link: photoUrl,
+          caption: result.reply,
+        });
+        await recordSendOutcome(tenant.id, null);
+        await recordOutboundMessage({
+          tenantId: tenant.id,
+          customerId: result.customerId,
+          orderId: result.order ? result.order.id : null,
+          body: `[photo] ${result.reply}`,
+        });
+        if (result.newOrder) notifyNewOrder({ tenant, result, message });
+        return;
+      } catch (err) {
+        // A picture that will not send must not cost the customer their reply:
+        // fall through to the text send below.
+        console.error('Failed to send bouquet photo, falling back to text', err.message);
+        await recordSendOutcome(tenant.id, err);
+      }
+    }
+
     try {
       await sendWhatsAppText({
         phoneNumberId: tenant.wa_phone_number_id,
@@ -191,17 +223,19 @@ async function handleMessage(message) {
     body: result.reply,
   });
 
-  // A brand-new order is the one thing a shop owner must not miss, and until
-  // now nothing told them. Fire the email after the reply is out, and never
-  // let a mail failure touch the message handling above.
-  if (result.newOrder) {
-    emailNewOrder({
-      tenant,
-      order: result.newOrder,
-      items: result.items,
-      customer: { waId: message.from, displayName: message.displayName },
-    }).then((sent) => {
-      if (!sent) console.warn('New order email not sent for', tenant.slug);
-    }).catch((err) => console.error('New order email failed', err.message));
-  }
+  if (result.newOrder) notifyNewOrder({ tenant, result, message });
+}
+
+// A brand-new order is the one thing a shop owner must not miss, and until now
+// nothing told them. Fire the email after the reply is out, and never let a
+// mail failure touch the message handling above.
+function notifyNewOrder({ tenant, result, message }) {
+  emailNewOrder({
+    tenant,
+    order: result.newOrder,
+    items: result.items,
+    customer: { waId: message.from, displayName: message.displayName },
+  }).then((sent) => {
+    if (!sent) console.warn('New order email not sent for', tenant.slug);
+  }).catch((err) => console.error('New order email failed', err.message));
 }

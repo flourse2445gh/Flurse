@@ -3,8 +3,11 @@ import { expiringTokenTenants, TOKEN_WARN_DAYS } from '../../lib/wahealth.js';
 import {
   ordersNeedingReminder, itemsByOrder, markReminderSent, customerWindowOpen,
 } from '../../lib/orders.js';
+import {
+  tenantsWithUpcomingOccasions, upcomingOccasions, markOccasionsReminded, OCCASION_LEAD_DAYS,
+} from '../../lib/occasions.js';
 import { sendWhatsAppText } from '../../lib/whatsapp.js';
-import { emailDeliveryReminder } from '../../lib/notify.js';
+import { emailDeliveryReminder, emailOccasionReminder } from '../../lib/notify.js';
 import { handler, json, requireMethod, HttpError } from '../../lib/http.js';
 
 // GET /api/cron/trial — invoked hourly by the Vercel cron in vercel.json.
@@ -38,8 +41,32 @@ export default handler(async (req, res) => {
     tenants: expired.map((t) => t.slug),
     expiringTokens: expiring.map((t) => t.slug),
     reminders: await sendDeliveryReminders(),
+    occasions: await sendOccasionReminders(),
   });
 });
+
+// The birthday and anniversary the shop remembered, told to the owner a few
+// days before so there is time to act. Sent once per occasion (`reminded_on`
+// keeps the hourly cron from repeating it), and never to the customer directly:
+// this is the owner's nudge, not a message that spends a WhatsApp session.
+async function sendOccasionReminders(now = new Date()) {
+  const tenants = await tenantsWithUpcomingOccasions(now);
+  let emailed = 0;
+
+  for (const tenant of tenants) {
+    const occasions = await upcomingOccasions(tenant.id, now);
+    if (!occasions.length) continue;
+    const ok = await emailOccasionReminder({
+      tenant, occasions, daysAhead: OCCASION_LEAD_DAYS,
+    });
+    if (ok) emailed += 1;
+    // Stamped either way: an occasion must not be nudged on every hourly run.
+    await markOccasionsReminded(occasions.map((o) => o.id), now);
+  }
+
+  console.log(`Occasion reminders: ${tenants.length} shop(s), ${emailed} emailed`);
+  return { shops: tenants.length, emailed };
+}
 
 // A customer who ordered for tomorrow gets one nudge on the day, so nobody is
 // surprised at the door. It is sent over WhatsApp only while the 24-hour window

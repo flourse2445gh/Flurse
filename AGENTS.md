@@ -458,3 +458,71 @@ The rules that keep it safe:
 Keep the intent order in `lib/replies.js` (payment, status, location, hours,
 delivery, then price) — price last so "delivery kitna?" is a delivery question,
 not a price one.
+
+## Bouquet photos, delivered photos and the free-reply photo (still zero AI)
+
+`lib/photos.js` stores two kinds of picture — a product's bouquet photo and an
+order's delivered photo — as a data URL on the row, and serves them publicly at
+`GET /api/shop?product=<token>` and `GET /api/shop?delivery=<token>`, exactly
+like the payment QR (same file, because the Hobby plan caps `api/` at 12
+functions; the token keeps each image unguessable). Uploads are
+`POST /api/shop?photo` (`{product_id, image}`) and `POST /api/shop?delivery-photo`
+(`{order_id, image}`), PNG/JPEG/WebP data URLs under 400 KB.
+
+- **A price question about a named bouquet is answered with its photo.** The
+  free path already priced the item; `freePhotoTarget()` in `lib/replies.js`
+  returns the first named item on a *price* question, `api/webhook.js` resolves
+  its URL and sends the price as the image caption. Still no model call. If the
+  image send fails the code falls back to the text reply, so a picture problem
+  never costs the customer their answer. `createOrderFromMessage` returns
+  `photoItem` for this; nothing is sent when the shop uploaded no photo.
+- **The delivered photo is sent once, when the order is fulfilled.** The owner
+  uploads it on the Orders row (the `delivery_photo_token` is set), then
+  `sendDeliveryPhoto` fires on `status=fulfilled` (or the explicit
+  `POST /api/dashboard?order_id=..&send-photo=1`). `delivery_photo_sent_at`
+  keeps a second click from sending it twice. It is best-effort: a failed photo
+  never undoes the status change.
+
+## Occasion memory: the birthday that brings the customer back
+
+A flower shop lives on repeat orders, and the repeat is an occasion.
+`lib/occasions.js` reads the birthday/anniversary a card message already names
+("Happy Birthday Rahul, 15 August") using the same Indian-calendar reader the
+order parser uses, and stores it in `customer_occasions` (idempotent on tenant +
+customer + kind + date). Capture is best-effort and never blocks the reply
+(`createOrderFromMessage` fires it without awaiting).
+
+- Only a clear occasion word **and** a date are remembered — "meri mummy ka
+  birthday aa raha hai" with no date stores nothing, so nothing is guessed.
+- The date is stored as an IST calendar day; the year is irrelevant, because a
+  birthday repeats. `upcomingOccasions`/`tenantsWithUpcomingOccasions` resolve
+  the month/day against the current year (rolling to next year once it has
+  passed, and folding 29 Feb to the 28th), so the cron and the dashboard agree.
+- The owner sees them on the Customers tab and is emailed by the daily cron
+  (`emailOccasionReminder`) within `OCCASION_LEAD_DAYS` (5). `reminded_on` keeps
+  the hourly cron from nudging the same occasion twice; the dashboard dismiss is
+  `POST /api/dashboard?occasions-seen`.
+
+## Festival broadcasts: the owner's words, sent honestly
+
+`lib/broadcasts.js` sends one owner-written message to the whole customer list —
+Diwali and Valentine's are where a flower shop makes its year. The owner writes
+it, so **no model call**. `POST /api/dashboard?broadcast` creates the job and its
+per-recipient rows; `POST /api/dashboard?broadcast-run=<id>` sends the next batch
+(`runBroadcast`, bounded) and the dashboard re-invokes it while `remaining > 0`,
+so one serverless call never has to reach 500 customers.
+
+- WhatsApp only accepts a free-form message within 24h of the customer's last
+  message. Recipients outside that window are recorded `skipped` with the reason
+  — never silently dropped. `audience=open_window` is the safe default;
+  `repeat` targets customers with 2+ orders.
+- The history reports `sent_count` / `skipped_count` / `failed_count` per job, so
+  the owner is told how many people actually got the offer instead of a single
+  "sent" that hides the truth.
+
+## The customer list (CRM)
+
+`lib/customers.js` backs `GET /api/conversations?customers`: one row per
+customer with order count, lifetime spend, last order, and the next occasion,
+sorted by spend. The Chats tab shows threads as they happen; this is the asset
+underneath them, and it is what makes a repeat order possible.
