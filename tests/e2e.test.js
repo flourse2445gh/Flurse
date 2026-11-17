@@ -410,21 +410,29 @@ test('upgrading reactivates a suspended tenant', async () => {
 
   const plans = await api('/api/payments', { cookie: login.cookie });
   assert.equal(plans.status, 200);
-  // Four plans are sold and the landing page advertises exactly these prices.
-  // A plan here that the page does not show would be a dead entry again.
+  // Six plans are sold (three tiers × monthly/yearly) and the landing page
+  // advertises exactly these prices. A plan here that the page does not show
+  // would be a dead entry again.
   assert.deepEqual(
     plans.body.plans.map((p) => p.id),
-    ['starter_monthly', 'pro_monthly', 'starter_yearly', 'pro_yearly'],
+    ['starter_monthly', 'growth_monthly', 'pro_monthly',
+     'starter_yearly', 'growth_yearly', 'pro_yearly'],
   );
-  assert.deepEqual(plans.body.plans.map((p) => p.priceCents), [99900, 199900, 999900, 1999900]);
-  assert.equal(plans.body.plans[0].aiReplies, 2000, 'fair use is advertised');
-  assert.equal(plans.body.plans[1].aiReplies, 10000, 'Pro carries a bigger allowance');
-  // Yearly is two months free: 12 × monthly must exceed the yearly price.
-  assert.ok(plans.body.plans[2].priceCents < plans.body.plans[0].priceCents * 12);
-  assert.ok(plans.body.plans[3].priceCents < plans.body.plans[1].priceCents * 12);
+  assert.deepEqual(
+    plans.body.plans.map((p) => p.priceCents),
+    [99900, 199900, 399900, 999000, 1999000, 3999000],
+  );
+  const [s, g, pr] = plans.body.plans;
+  assert.equal(s.aiReplies, 1500, 'fair use is advertised');
+  assert.equal(g.aiReplies, 4000, 'Growth carries a bigger allowance');
+  assert.equal(pr.aiReplies, 10000, 'Pro carries the biggest allowance');
+  // Yearly is ten months' price, so two months are free on every tier.
+  assert.equal(plans.body.plans[3].priceCents, s.priceCents * 10);
+  assert.equal(plans.body.plans[4].priceCents, g.priceCents * 10);
+  assert.equal(plans.body.plans[5].priceCents, pr.priceCents * 10);
   // Only the monthly plans can be charged again by Razorpay.
   assert.deepEqual(plans.body.plans.filter((p) => p.recurring).map((p) => p.id),
-    ['starter_monthly', 'pro_monthly']);
+    ['starter_monthly', 'growth_monthly', 'pro_monthly']);
 
   const upgrade = await api('/api/payments?action=upgrade', {
     method: 'POST',
@@ -1914,7 +1922,7 @@ test('the yearly plan is a one-time payment that buys a year', async () => {
       method: 'POST', cookie: login.cookie, body: { plan: 'starter_yearly' },
     });
     assert.equal(checkout.status, 200);
-    assert.equal(sentBody.amount, 999900, 'the year is charged in paise');
+    assert.equal(sentBody.amount, 999000, 'the year is charged in paise');
 
     // Settling it sets the paid period a year out, not a month.
     const signature = crypto.createHmac('sha256', 'e2e-secret')
@@ -1964,8 +1972,8 @@ test('Pro buys a bigger AI allowance than Starter', async () => {
     'SELECT id FROM customers WHERE tenant_id = $1 LIMIT 1', [tenant.id],
   );
 
-  // Spend Starter's whole allowance (2,000). Pro allows 10,000, so a Pro shop
-  // is still inside its plan and a model may be used.
+  // 2,000 turns is above Starter's 1,500 allowance but well inside Pro's
+  // 10,000, so a Pro shop is still allowed a model where a Starter would not be.
   await query('DELETE FROM messages WHERE tenant_id = $1', [tenant.id]);
   await query(
     `INSERT INTO messages (tenant_id, customer_id, direction, body, ai_reply)

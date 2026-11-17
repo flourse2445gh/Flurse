@@ -7,7 +7,7 @@ import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.j
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // POST /api/onboard
-// Creates a tenant + owner user, starts the 3-day trial, and logs the owner in.
+// Creates a tenant + owner user, starts the 14-day trial, and logs the owner in.
 export default handler(async (req, res) => {
   if (!requireMethod(req, res, ['POST'])) return;
 

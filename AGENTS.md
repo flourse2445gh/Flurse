@@ -2,10 +2,11 @@
 
 Multi-tenant WhatsApp ordering SaaS. One platform, many shops. Each shop
 connects its own Meta WhatsApp Cloud API number; BudsBox turns inbound
-messages into orders and shows them in a dashboard. 14-day trial, then two
-tiers — Starter ₹999/month (₹9,999/year) and Pro ₹1,999/month (₹19,999/year),
-yearly being two months free. Each plan carries a fair-use allowance of AI
-replies per month (Starter 2,000, Pro 10,000).
+messages into orders and shows them in a dashboard. 14-day trial, then three
+tiers, each monthly or yearly — Starter ₹999/month (₹9,990/year), Growth
+₹1,999/month (₹19,990/year) and Pro ₹3,999/month (₹39,990/year), yearly being
+ten months' price so two months are free. Each plan carries a fair-use
+allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
 
 ## Layout
 
@@ -144,16 +145,19 @@ replies per month (Starter 2,000, Pro 10,000).
   Razorpay checkout as `subscription_id` (not `order_id`).
 - **Plans live in `lib/plans.js`.** One place holds the price, the period and
   the fair-use allowance, so the checkout, the dashboard and the usage counter
-  cannot drift apart. Two tiers, each monthly or yearly: `starter_monthly`
-  (₹999, 2,000 replies), `pro_monthly` (₹1,999, 10,000), `starter_yearly`
-  (₹9,999) and `pro_yearly` (₹19,999). Only the monthly plans are `recurring`,
-  so they are the only ones `action=subscribe` accepts; a yearly plan is a
-  one-time `action=checkout`. A plan that is not `recurring` is refused with
-  400, which keeps a yearly purchase from silently becoming a monthly mandate.
-  `DEFAULT_PLAN` (`starter_monthly`) is what an unbilled shop is counted
-  against, so a trial never gets a bigger allowance than it paid for.
+  cannot drift apart. Three tiers, each monthly or yearly: `starter_monthly`
+  (₹999, 1,500 replies), `growth_monthly` (₹1,999, 4,000), `pro_monthly`
+  (₹3,999, 10,000), and `starter_yearly` / `growth_yearly` / `pro_yearly` at
+  exactly ten months' price (₹9,990 / ₹19,990 / ₹39,990), so two months are
+  free. Only the monthly plans are `recurring`, so they are the only ones
+  `action=subscribe` accepts; a yearly plan is a one-time `action=checkout`. A
+  plan that is not `recurring` is refused with 400, which keeps a yearly
+  purchase from silently becoming a monthly mandate. `DEFAULT_PLAN`
+  (`starter_monthly`) is what an unbilled shop is counted against, so a trial
+  never gets a bigger allowance than it paid for.
 - **Fair use caps AI spend without ever silencing a shop.** Each plan includes
-  `aiReplies` — 2,000 on Starter, 10,000 on Pro — model-written replies a month.
+  `aiReplies` — 1,500 on Starter, 4,000 on Growth, 10,000 on Pro — model-written
+  replies a month.
   `messages.ai_reply` marks only the turns where a model actually wrote the
   reply; a greeting or a payment-QR answer is free and never counts.
   `createOrderFromMessage()` counts the month's stamped turns and passes

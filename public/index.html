@@ -306,92 +306,95 @@
     <div class="max-w-6xl mx-auto px-5 py-16">
       <div class="text-center reveal">
         <h2 class="text-3xl sm:text-4xl font-extrabold">Simple <span class="text-brand">pricing</span></h2>
-        <p class="mt-3 text-ink/55 text-[15px]">Pehle 14 din free. Uske baad ₹999/month se — ek bouquet ke price se bhi kam.</p>
+        <p class="mt-3 text-ink/55 text-[15px]">Pehle 14 din free. Uske baad sirf ₹999/month se — ek bouquet ke price se bhi kam.</p>
       </div>
 
-      <div class="mt-10 grid sm:grid-cols-2 lg:grid-cols-4 gap-5 max-w-6xl mx-auto">
-        <!-- Free trial -->
-        <div class="bg-white rounded-3xl p-7 border-2 border-ink/5 reveal">
-          <p class="text-[11px] font-bold text-ink/40 tracking-wider">FREE TRIAL</p>
-          <p class="mt-2 text-4xl font-extrabold">₹0</p>
-          <p class="text-[13px] text-ink/50">14 din ke liye</p>
-          <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65">
+      <!-- Monthly / Yearly toggle: one set of plans, two ways to pay. -->
+      <div class="mt-8 flex justify-center reveal">
+        <div class="inline-flex bg-white rounded-full p-1 border-2 border-ink/10">
+          <button id="moBtn" type="button"
+                  class="px-6 py-2.5 rounded-full font-bold text-[14px] transition bg-ink text-white">Monthly</button>
+          <button id="yrBtn" type="button"
+                  class="px-6 py-2.5 rounded-full font-bold text-[14px] transition text-ink/60">
+            Yearly <span class="text-[11px] bg-wa/15 text-waDark px-2 py-0.5 rounded-full ml-1">2 mahine FREE</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-8 grid sm:grid-cols-3 gap-5 max-w-5xl mx-auto">
+        <!-- Starter -->
+        <div class="bg-white rounded-3xl p-7 border-2 border-ink/5 reveal flex flex-col">
+          <p class="text-[11px] font-bold text-ink/40 tracking-wider">STARTER</p>
+          <p class="mt-1 text-[13px] text-ink/50">Naya ya chhota shop</p>
+          <p class="mt-4 text-4xl font-extrabold" data-price data-mo="₹999" data-yr="₹9,990">₹999</p>
+          <p class="text-[13px] text-ink/50" data-per>/month</p>
+          <p class="mt-4 text-[13px] font-semibold text-brandDark bg-brand/8 rounded-lg px-3 py-2">
+            Har mahine <b>1,500</b> AI replies
+          </p>
+          <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65 flex-1">
+            <li class="flex gap-2"><span class="text-wa">✓</span> Unlimited customers + orders</li>
             <li class="flex gap-2"><span class="text-wa">✓</span> AI order parsing + auto reply</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> Catalog + chat inbox</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> Booking dashboard</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> No card needed</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Apna WhatsApp number connect</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Catalog + chat inbox + dashboard</li>
           </ul>
-          <a href="/app?start=1" class="mt-6 w-full block text-center bg-ink/5 hover:bg-ink/10 font-bold py-3 rounded-xl transition">Start Free Trial</a>
+          <a href="/app?start=1"
+                  class="mt-6 w-full block text-center bg-ink/5 hover:bg-ink/10 font-bold py-3 rounded-xl transition">
+            Start Free Trial
+          </a>
         </div>
 
-        <!-- Starter monthly -->
-        <div class="relative bg-ink text-white rounded-3xl p-7 shadow-soft overflow-hidden reveal">
+        <!-- Growth (recommended) -->
+        <div class="relative bg-ink text-white rounded-3xl p-7 shadow-soft overflow-hidden reveal flex flex-col sm:-mt-3 sm:mb-3">
           <div class="absolute -top-16 -right-16 w-48 h-48 bg-brand/30 rounded-full blur-2xl"></div>
-          <div class="relative">
+          <div class="relative flex flex-col h-full">
             <div class="flex items-center justify-between">
-              <p class="text-[11px] font-bold text-brand tracking-wider">STARTER</p>
-              <span class="bg-wa text-white text-[10px] font-bold px-2.5 py-1 rounded-full">POPULAR</span>
+              <p class="text-[11px] font-bold text-brand tracking-wider">GROWTH</p>
+              <span class="bg-wa text-white text-[10px] font-bold px-2.5 py-1 rounded-full">SABSE POPULAR</span>
             </div>
-            <p class="mt-2 text-4xl font-extrabold">₹999<span class="text-base font-medium text-white/40">/mo</span></p>
-            <p class="text-[13px] text-white/50">Har 30 din me renew</p>
-            <ul class="mt-5 space-y-2.5 text-[13px] text-white/70">
-              <li class="flex gap-2"><span class="text-wa">✓</span> Unlimited customers + orders</li>
-              <li class="flex gap-2"><span class="text-wa">✓</span> 2,000 AI replies / mahine</li>
+            <p class="mt-1 text-[13px] text-white/50">Roz orders aate hain</p>
+            <p class="mt-4 text-4xl font-extrabold" data-price data-mo="₹1,999" data-yr="₹19,990">₹1,999</p>
+            <p class="text-[13px] text-white/50" data-per>/month</p>
+            <p class="mt-4 text-[13px] font-semibold text-brand bg-brand/15 rounded-lg px-3 py-2">
+              Har mahine <b>4,000</b> AI replies
+            </p>
+            <ul class="mt-5 space-y-2.5 text-[13px] text-white/70 flex-1">
+              <li class="flex gap-2"><span class="text-wa">✓</span> Sab kuch Starter wala</li>
+              <li class="flex gap-2"><span class="text-wa">✓</span> 4,000 AI replies — 2.6× Starter</li>
               <li class="flex gap-2"><span class="text-wa">✓</span> Auto-pay — ek baar approve, phir apne aap</li>
               <li class="flex gap-2"><span class="text-wa">✓</span> Priority support</li>
             </ul>
             <a href="/app?start=1"
                     class="mt-6 w-full block text-center bg-brand hover:bg-brandDark font-bold py-3 rounded-xl transition active:scale-95">
-              Pay ₹999 to Continue
+              Start Free Trial
             </a>
           </div>
         </div>
 
-        <!-- Pro monthly -->
-        <div class="bg-white rounded-3xl p-7 border-2 border-brand/30 reveal">
-          <div class="flex items-center justify-between">
-            <p class="text-[11px] font-bold text-brand tracking-wider">PRO</p>
-            <span class="bg-brandDark text-white text-[10px] font-bold px-2.5 py-1 rounded-full">BUSY SHOPS</span>
-          </div>
-          <p class="mt-2 text-4xl font-extrabold">₹1,999<span class="text-base font-medium text-ink/30">/mo</span></p>
-          <p class="text-[13px] text-ink/50">Har 30 din me renew</p>
-          <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65">
-            <li class="flex gap-2"><span class="text-wa">✓</span> Sab kuch Starter wala</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> 10,000 AI replies / mahine</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> Zyada orders, kam tension</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> Auto-pay included</li>
+        <!-- Pro -->
+        <div class="bg-white rounded-3xl p-7 border-2 border-brand/30 reveal flex flex-col">
+          <p class="text-[11px] font-bold text-brand tracking-wider">PRO</p>
+          <p class="mt-1 text-[13px] text-ink/50">Bhara hua, busy shop</p>
+          <p class="mt-4 text-4xl font-extrabold" data-price data-mo="₹3,999" data-yr="₹39,990">₹3,999</p>
+          <p class="text-[13px] text-ink/50" data-per>/month</p>
+          <p class="mt-4 text-[13px] font-semibold text-brandDark bg-brand/8 rounded-lg px-3 py-2">
+            Har mahine <b>10,000</b> AI replies
+          </p>
+          <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65 flex-1">
+            <li class="flex gap-2"><span class="text-wa">✓</span> Sab kuch Growth wala</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> 10,000 AI replies — 6.7× Starter</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Festive season ready</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Priority support</li>
           </ul>
           <a href="/app?start=1"
                   class="mt-6 w-full block text-center bg-brandDark hover:bg-ink font-bold py-3 rounded-xl transition active:scale-95 text-white">
-            Pay ₹1,999 to Continue
-          </a>
-        </div>
-
-        <!-- Yearly -->
-        <div class="bg-white rounded-3xl p-7 border-2 border-brand/30 reveal">
-          <div class="flex items-center justify-between">
-            <p class="text-[11px] font-bold text-brand tracking-wider">YEARLY</p>
-            <span class="bg-brandDark text-white text-[10px] font-bold px-2.5 py-1 rounded-full">2 MAHINE FREE</span>
-          </div>
-          <p class="mt-2 text-4xl font-extrabold">₹9,999<span class="text-base font-medium text-ink/30">/yr</span></p>
-          <p class="text-[13px] text-ink/50">₹833/mahine · Starter features</p>
-          <p class="mt-3 text-4xl font-extrabold">₹19,999<span class="text-base font-medium text-ink/30">/yr</span></p>
-          <p class="text-[13px] text-ink/50">₹1,666/mahine · Pro features</p>
-          <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65">
-            <li class="flex gap-2"><span class="text-wa">✓</span> 2 mahine muft (₹1,998–₹3,998 bachat)</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> Starter: 2,000 · Pro: 10,000 AI replies/mahine</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> Saal bhar ka tension khatam</li>
-          </ul>
-          <a href="/app?start=1"
-                  class="mt-6 w-full block text-center bg-brandDark hover:bg-ink font-bold py-3 rounded-xl transition active:scale-95 text-white">
-            Save 2 Months — Pay Yearly
+            Start Free Trial
           </a>
         </div>
       </div>
 
-      <p class="mt-6 text-center text-[12px] text-ink/45">
-        Fair use: har plan me apni AI replies ki limit hai. Limit ke baad bhi customer ko reply milta hai — bas AI ki
-        jagah simple matching chalti hai, aur aapka number kabhi chup nahi hota.
+      <p class="mt-6 text-center text-[12px] text-ink/45 max-w-2xl mx-auto">
+        Har plan me AI replies ki apni limit hai. Limit khatam hone ke baad bhi aapka number kabhi chup nahi hota —
+        customer ko reply milta rehta hai, bas AI ki jagah smart matching chalti hai. Yearly lene par 2 mahine muft.
       </p>
     </div>
   </div>
@@ -496,6 +499,24 @@
     for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
   }, { threshold: 0.12 });
   document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  // One set of plans, two ways to pay. Switching the toggle rewrites every
+  // price from its own data-mo / data-yr, so the cards never disagree.
+  const moBtn = document.getElementById('moBtn');
+  const yrBtn = document.getElementById('yrBtn');
+  function showBilling(period) {
+    const yearly = period === 'yearly';
+    document.querySelectorAll('[data-price]').forEach((el) => {
+      el.textContent = yearly ? el.dataset.yr : el.dataset.mo;
+    });
+    document.querySelectorAll('[data-per]').forEach((el) => {
+      el.textContent = yearly ? '/year' : '/month';
+    });
+    moBtn.className = `px-6 py-2.5 rounded-full font-bold text-[14px] transition ${yearly ? 'text-ink/60' : 'bg-ink text-white'}`;
+    yrBtn.className = `px-6 py-2.5 rounded-full font-bold text-[14px] transition ${yearly ? 'bg-ink text-white' : 'text-ink/60'}`;
+  }
+  moBtn.onclick = () => showBilling('monthly');
+  yrBtn.onclick = () => showBilling('yearly');
 </script>
 
 </body>

@@ -298,24 +298,11 @@
     </div>
     <div style="padding:20px">
       <p class="muted" id="payShop">—</p>
-      <div class="stack" style="margin-bottom:16px">
-        <label class="row" style="border:2px solid rgba(37,211,102,.5);background:rgba(37,211,102,.06);border-radius:12px;padding:12px 14px;cursor:pointer;align-items:flex-start">
-          <input type="radio" name="pl" value="starter_monthly" checked style="width:auto;margin-top:3px">
-          <span><b>Starter</b> · ₹999/mo<span class="muted" style="font-size:11px;display:block">2,000 AI replies/mahine</span></span>
-        </label>
-        <label class="row" style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;align-items:flex-start">
-          <input type="radio" name="pl" value="pro_monthly" style="width:auto;margin-top:3px">
-          <span><b>Pro</b> · ₹1,999/mo<span class="muted" style="font-size:11px;display:block">10,000 AI replies/mahine · best for busy shops</span></span>
-        </label>
-        <label class="row" style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;align-items:flex-start">
-          <input type="radio" name="pl" value="starter_yearly" style="width:auto;margin-top:3px">
-          <span><b>Starter Yearly</b> · ₹9,999<span class="muted" style="font-size:11px;display:block">2 mahine free · 2,000 AI replies/mahine</span></span>
-        </label>
-        <label class="row" style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;align-items:flex-start">
-          <input type="radio" name="pl" value="pro_yearly" style="width:auto;margin-top:3px">
-          <span><b>Pro Yearly</b> · ₹19,999<span class="muted" style="font-size:11px;display:block">2 mahine free · 10,000 AI replies/mahine</span></span>
-        </label>
+      <div class="inline-flex bg-ink/5 rounded-full p-1 mb-3">
+        <button type="button" id="plMo" class="px-4 py-1.5 rounded-full font-bold text-[12px] bg-ink text-white">Monthly</button>
+        <button type="button" id="plYr" class="px-4 py-1.5 rounded-full font-bold text-[12px] text-ink/60">Yearly · 2 mahine free</button>
       </div>
+      <div class="stack" style="margin-bottom:16px" id="plList"></div>
       <div class="stack">
         <label class="row" style="border:2px solid rgba(37,211,102,.4);background:rgba(37,211,102,.06);border-radius:12px;padding:12px 14px;cursor:pointer">
           <input type="radio" name="pm" checked style="width:auto"> <span>📱 UPI · GPay · PhonePe</span>
@@ -324,9 +311,9 @@
           <input type="radio" name="pm" style="width:auto"> <span>💳 Card · Visa · RuPay</span>
         </label>
       </div>
-      <button id="payDo" class="btn block" style="background:#3395ff;margin-top:18px">Pay ₹999</button>
-      <button id="payAuto" class="btn block ghost" style="margin-top:8px">Auto-pay har mahine · ₹999</button>
-      <p class="muted center" style="margin:12px 0 0;font-size:10.5px" id="payNote">Fair use: 2,000 AI replies/mahine. Uske baad bhi reply aayega, sirf AI off ho jayega.</p>
+      <button id="payDo" class="btn block" style="background:#3395ff;margin-top:18px">Pay</button>
+      <button id="payAuto" class="btn block ghost" style="margin-top:8px">Auto-pay</button>
+      <p class="muted center" style="margin:12px 0 0;font-size:10.5px" id="payNote">Fair use: limit ke baad bhi reply aayega, sirf AI off ho jayega.</p>
     </div>
   </div>
 </div>
@@ -432,7 +419,7 @@ function renderBanner(tenant) {
   if (tenant.status === 'trialing') {
     const t = trialLeft(tenant.trialEndsAt);
     el.className = 'banner trial';
-    el.innerHTML = `⏳ <b>Aapka free trial ${escapeHtml(t.text)} me khatam.</b> Monthly ₹999 ya Yearly ₹9,999 me upgrade karo.
+    el.innerHTML = `⏳ <b>Aapka free trial ${escapeHtml(t.text)} me khatam.</b> Apna plan choose karke upgrade karo.
       <button class="btn sm" onclick="openPay()">Upgrade</button>`;
   } else if (tenant.status === 'suspended' || tenant.status === 'cancelled') {
     el.className = 'banner locked';
@@ -925,31 +912,88 @@ $('tryBtn').onclick = async () => {
 };
 
 // ---- payment -------------------------------------------------------------
-function openPay() {
+// The plan list comes from /api/payments, so a price change in lib/plans.js
+// shows up here without touching this file. Two tiers of state: `plans` is the
+// catalogue, `period` is which way the owner wants to pay.
+let plans = [];
+let period = 'monthly';
+
+const inr = (paise) => `₹${(paise / 100).toLocaleString('en-IN')}`;
+const PLAN_BLURB = {
+  Starter: 'naya ya chhota shop',
+  Growth: 'roz orders aate hain',
+  Pro: 'bhara hua, busy shop',
+};
+
+function plansForPeriod() {
+  return plans.filter((p) => p.billing === period);
+}
+
+// The one-line pitch under a plan name, e.g. "1,500 AI replies/mahine · naya shop".
+function planBlurb(p) {
+  return `${p.aiReplies.toLocaleString('en-IN')} AI replies/mahine · ${PLAN_BLURB[p.tier] ?? ''}`;
+}
+
+function renderPlanList() {
+  const list = $('plList');
+  const chosen = selectedPlan();
+  const forPeriod = plansForPeriod();
+  // Keep the owner on the same tier when the toggle flips.
+  const keepTier = plans.find((p) => p.id === chosen)?.tier;
+  const checkedId = (forPeriod.find((p) => p.tier === keepTier) ?? forPeriod[0])?.id;
+
+  list.innerHTML = forPeriod.map((p) => `
+    <label class="row" style="border:${p.id === checkedId ? '2px solid rgba(37,211,102,.5);background:rgba(37,211,102,.06)' : '1px solid var(--line)'};border-radius:12px;padding:12px 14px;cursor:pointer;align-items:flex-start">
+      <input type="radio" name="pl" value="${p.id}" ${p.id === checkedId ? 'checked' : ''} style="width:auto;margin-top:3px">
+      <span><b>${escapeHtml(p.name)}</b> · ${inr(p.priceCents)}${p.billing === 'yearly' ? '/saal' : '/mo'}
+        <span class="muted" style="font-size:11px;display:block">${escapeHtml(planBlurb(p))}</span></span>
+    </label>`).join('');
+
+  list.querySelectorAll('input[name="pl"]').forEach((el) => {
+    el.addEventListener('change', syncPayButtons);
+  });
+  syncPayButtons();
+}
+
+function syncPayButtons() {
+  const p = plans.find((x) => x.id === selectedPlan());
+  const isYearly = p?.billing === 'yearly';
+  $('payDo').textContent = p ? `Pay ${inr(p.priceCents)}${isYearly ? ' — poora saal' : ''}` : 'Pay';
+  const monthly = plans.find((x) => x.tier === p?.tier && x.billing === 'monthly');
+  $('payAuto').textContent = monthly ? `Auto-pay har mahine · ${inr(monthly.priceCents)}` : 'Auto-pay';
+  $('payAuto').style.display = isYearly ? 'none' : 'block';
+  $('payNote').textContent = p
+    ? `Fair use: har mahine ${p.aiReplies.toLocaleString('en-IN')} AI replies. Uske baad bhi reply aayega, sirf AI off ho jayega.`
+    : 'Fair use: limit ke baad bhi reply aayega, sirf AI off ho jayega.';
+}
+
+function showPeriod(next) {
+  period = next;
+  const yr = next === 'yearly';
+  $('plMo').className = `px-4 py-1.5 rounded-full font-bold text-[12px] ${yr ? 'text-ink/60' : 'bg-ink text-white'}`;
+  $('plYr').className = `px-4 py-1.5 rounded-full font-bold text-[12px] ${yr ? 'bg-ink text-white' : 'text-ink/60'}`;
+  renderPlanList();
+}
+$('plMo').onclick = () => showPeriod('monthly');
+$('plYr').onclick = () => showPeriod('yearly');
+
+async function openPay() {
   $('payShop').textContent = state.tenant.businessName;
   $('payModal').classList.remove('hidden');
+  if (!plans.length) {
+    try {
+      const data = await api('/api/payments');
+      plans = data.plans ?? [];
+    } catch { plans = []; }
+  }
+  showPeriod(period);
 }
 $('payClose').onclick = () => $('payModal').classList.add('hidden');
 $('payBtn').onclick = openPay;
 
 function selectedPlan() {
-  return document.querySelector('input[name="pl"]:checked')?.value ?? 'starter_monthly';
+  return document.querySelector('input[name="pl"]:checked')?.value ?? '';
 }
-
-// The yearly plans are paid once, so there is nothing to auto-charge: the
-// auto-pay button is only meaningful for a monthly plan.
-function syncPayButtons() {
-  const id = selectedPlan();
-  const yearly = id.endsWith('_yearly');
-  const price = id.startsWith('pro_') ? (yearly ? '₹19,999' : '₹1,999') : (yearly ? '₹9,999' : '₹999');
-  $('payDo').textContent = `Pay ${price}`;
-  $('payAuto').textContent = `Auto-pay har mahine · ${id.startsWith('pro_') ? '₹1,999' : '₹999'}`;
-  $('payAuto').style.display = yearly ? 'none' : 'block';
-}
-document.querySelectorAll('input[name="pl"]').forEach((el) => {
-  el.addEventListener('change', syncPayButtons);
-});
-syncPayButtons();
 
 $('payDo').onclick = async () => {
   const btn = $('payDo');
@@ -997,7 +1041,11 @@ $('payDo').onclick = async () => {
 // Nothing else has to be remembered after this.
 $('payAuto').onclick = async () => {
   const btn = $('payAuto');
-  const plan = selectedPlan().endsWith('_yearly') ? 'starter_monthly' : selectedPlan();
+  // Auto-pay only ever applies to a monthly plan; the yearly toggle hides the
+  // button, and this keeps the call correct even if it is reached another way.
+  const chosen = plans.find((x) => x.id === selectedPlan());
+  const plan = plans.find((x) => x.tier === chosen?.tier && x.billing === 'monthly')?.id
+    ?? plans.find((x) => x.billing === 'monthly')?.id;
   btn.disabled = true; btn.textContent = 'Setting up…';
   try {
     const sub = await api('/api/payments?action=subscribe', {
@@ -1009,7 +1057,7 @@ $('payAuto').onclick = async () => {
         key: sub.keyId,
         subscription_id: sub.subscriptionId,
         name: 'BudsBox',
-        description: 'Pro Monthly · auto-renew',
+        description: `${sub?.plan?.name ?? 'BudsBox'} · auto-renew`,
         prefill: { name: sub.name },
         theme: { color: '#3395ff' },
         handler: () => resolve(),
