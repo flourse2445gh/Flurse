@@ -601,7 +601,8 @@ function renderBanner(tenant) {
       <button class="btn sm" onclick="openPay()">Upgrade</button>`;
   } else if (tenant.status === 'suspended' || tenant.status === 'cancelled') {
     el.className = 'banner locked';
-    el.innerHTML = `🔒 <b>Trial khatam.</b> WhatsApp number disconnect hai aur orders ruk gaye hain.
+    el.innerHTML = `🔒 <b>Trial khatam.</b> AI ne reply karna band kar diya hai aur naye orders ruk gaye hain.
+      Number juda hua hai — upgrade karte hi wahi number turant chalu ho jayega.
       <button class="btn sm" onclick="openPay()">Upgrade to resume</button>`;
   } else {
     el.className = 'banner hidden';

@@ -92,13 +92,14 @@ async function applySubscriptionState(subscriptionId) {
   const tenantId = rows[0].tenant_id;
 
   // A failed mandate should not silently keep serving. Suspend now; the owner
-  // can pay by hand and keep their number, exactly like a trial expiry.
+  // can pay by hand and keep their number, exactly like a trial expiry. The
+  // token is kept for the same reason: the status gate stops replies, and a
+  // later payment must be able to re-enable the number without a new signup.
   await query(
     `UPDATE tenants
         SET status = 'suspended',
             disconnected_at = now(),
             disconnect_reason = 'subscription_halted',
-            wa_access_token = NULL,
             updated_at = now()
       WHERE id = $1 AND status <> 'cancelled'`,
     [tenantId],

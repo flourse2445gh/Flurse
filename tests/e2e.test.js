@@ -358,7 +358,8 @@ test('the trial cron suspends expired trials and revokes the access token', asyn
     "SELECT status, wa_access_token, wa_phone_number_id, disconnect_reason FROM tenants WHERE slug = 'test-cafe'",
   );
   assert.equal(rows[0].status, 'suspended');
-  assert.equal(rows[0].wa_access_token, null, 'access token must be revoked');
+  assert.equal(rows[0].wa_access_token, 'token-abc',
+    'the token is kept, so a payment resumes the number without a new Meta signup');
   assert.equal(rows[0].wa_phone_number_id, 'PHONE1', 'phone number id is kept for re-upgrade');
   assert.equal(rows[0].disconnect_reason, 'trial_expired');
 });
@@ -567,6 +568,12 @@ test('a shop connects and disconnects its WhatsApp number', async () => {
     body: { email: 'owner@test.cafe', password: 'supersecret123' },
   });
   const cookie = login.cookie;
+
+  // Start from a shop with no token, so "not connected" is the shop's own state
+  // and not a side effect of whatever ran before.
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = NULL WHERE slug = 'test-cafe'",
+  );
 
   const before = await api('/api/whatsapp', { cookie });
   assert.equal(before.body.connected, false, 'no access token yet, so not connected');
@@ -1820,6 +1827,98 @@ test('a tampered payment cannot activate a shop, a signed one can', async () => 
   }
 });
 
+test('a shop that pays after its trial lapses gets its number working again', async () => {
+  // The whole promise, end to end: a connected shop lapses, is suspended by the
+  // cron, then pays and must be able to send again — without redoing Meta
+  // signup. This is the test that was missing: activation used to restore
+  // `active` while the token had been thrown away, so a paying shop answered
+  // nobody.
+  await query(
+    `UPDATE tenants SET status = 'trialing', trial_ends_at = now() - interval '1 minute',
+        wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc',
+        wa_token_expires_at = now() + interval '30 days', paid_until = NULL
+      WHERE slug = 'test-cafe'`,
+  );
+
+  const cron = await fetch(`${BASE}/api/cron/trial`, {
+    headers: { Authorization: 'Bearer test-cron-secret' },
+  });
+  assert.equal(cron.status, 200);
+
+  const lapsed = await query(
+    "SELECT status, wa_access_token FROM tenants WHERE slug = 'test-cafe'",
+  );
+  assert.equal(lapsed.rows[0].status, 'suspended');
+
+  // While suspended, an inbound message still creates no order — the status
+  // gate, not a missing token, is what stops the shop replying.
+  const quiet = await query('SELECT COUNT(*)::int AS n FROM orders');
+  const payload = inboundPayload({
+    phoneNumberId: 'PHONE1', from: '15550002222', text: '2 roses', id: 'wamid.LAPSED',
+  });
+  const { raw, sig } = signedWebhook(payload);
+  await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+  const stillQuiet = await query('SELECT COUNT(*)::int AS n FROM orders');
+  assert.equal(stillQuiet.rows[0].n, quiet.rows[0].n, 'a suspended shop creates no order');
+
+  // The owner pays.
+  await query(
+    `INSERT INTO payments (tenant_id, plan, amount_cents, razorpay_order_id)
+     SELECT id, 'starter_monthly', 99900, 'order_E2E_REACTIVATE' FROM tenants WHERE slug = 'test-cafe'`,
+  );
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  try {
+    const login = await api('/api/auth?action=login', {
+      method: 'POST',
+      body: { email: 'owner@test.cafe', password: 'supersecret123' },
+    });
+    const signature = crypto.createHmac('sha256', 'e2e-secret')
+      .update('order_E2E_REACTIVATE|pay_E2E_REACTIVATE').digest('hex');
+    const paid = await api('/api/payments?action=verify', {
+      method: 'POST', cookie: login.cookie,
+      body: {
+        razorpay_order_id: 'order_E2E_REACTIVATE',
+        razorpay_payment_id: 'pay_E2E_REACTIVATE',
+        razorpay_signature: signature,
+      },
+    });
+    assert.equal(paid.status, 200);
+
+    const revived = await query(
+      "SELECT status, wa_access_token, wa_phone_number_id, paid_until FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(revived.rows[0].status, 'active');
+    assert.ok(revived.rows[0].paid_until, 'the paid period is set');
+    assert.equal(revived.rows[0].wa_access_token, 'token-abc',
+      'the number is still connected, so the shop can send the moment it pays');
+    assert.equal(revived.rows[0].wa_phone_number_id, 'PHONE1');
+
+    // And it really does answer again: a catalog message now becomes an order
+    // instead of being dropped as tenant_inactive.
+    const revive = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550002222', text: '3 lattes', id: 'wamid.REVIVED',
+    });
+    const signed = signedWebhook(revive);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': signed.sig },
+      body: signed.raw,
+    });
+    const revivedOrders = await query(
+      "SELECT COUNT(*)::int AS n FROM orders WHERE wa_message_id = 'wamid.REVIVED'",
+    );
+    assert.equal(revivedOrders.rows[0].n, 1, 'the paid shop takes orders again');
+  } finally {
+    process.env = saved;
+  }
+});
+
 test('the webhook activates a shop only when Razorpay confirms the payment', async () => {
   await query(
     "UPDATE tenants SET status = 'suspended', wa_access_token = NULL, paid_until = NULL WHERE slug = 'test-cafe'",
@@ -2084,7 +2183,8 @@ test('a halted mandate suspends the shop instead of serving it free', async () =
       "SELECT status, wa_access_token, disconnect_reason FROM tenants WHERE slug = 'test-cafe'",
     );
     assert.equal(tenant.rows[0].status, 'suspended');
-    assert.equal(tenant.rows[0].wa_access_token, null, 'the number is disconnected');
+    assert.equal(tenant.rows[0].wa_access_token, 'tok',
+      'the token is kept so a payment can revive the number');
     assert.equal(tenant.rows[0].disconnect_reason, 'subscription_halted');
 
     const sub = await query(

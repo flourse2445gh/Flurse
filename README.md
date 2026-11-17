@@ -2,8 +2,9 @@
 
 Multi-tenant WhatsApp ordering SaaS. Each shop connects its own WhatsApp number and
 gets an AI assistant that turns customer messages into structured orders in a
-dashboard. Shops start on a 14-day free trial; when it ends the platform
-automatically disconnects the number until the shop upgrades.
+dashboard. Shops start on a 14-day free trial; when it ends the AI stops replying
+until the shop upgrades, and the number stays connected so a payment resumes it
+without a new Meta signup.
 
 **Live:** https://budsbox.vercel.app — landing page, shop app at `/app`,
 operator panel at `/admin`. Postgres runs on Neon, provisioned through the
@@ -34,8 +35,9 @@ Vercel marketplace.
 - Per-shop dashboard: orders, revenue, customer counts, chat inbox, catalog
 - WhatsApp connection health: warns the owner before the 60-day token expires
   and flags a send that fails, instead of going quiet silently
-- Cron that expires overdue trials and auto-disconnects those shops, logs
-  tokens that are about to lapse, and sends delivery-day reminders
+- Cron that expires overdue trials and auto-suspends those shops (AI stops, the
+  number stays connected so a payment revives it), logs tokens that are about to
+  lapse, and sends delivery-day reminders
 - Operator panel: all shops, live status, order counts, trial countdown
 - Plan upgrade via Razorpay — a monthly auto-renew mandate or a one-time yearly
   payment — that reactivates a suspended shop
