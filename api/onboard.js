@@ -21,6 +21,9 @@ export default handler(async (req, res) => {
 
   if (!businessName) throw new HttpError(400, 'business_name is required');
   if (!EMAIL_RE.test(email)) throw new HttpError(400, 'A valid email is required');
+  // The form asks for 8 characters, but the browser check can be skipped, so
+  // the real rule lives here.
+  if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
 
   const slug = slugify(businessName) || `shop-${Date.now().toString(36)}`;
   const trialEndsAt = trialEndDate();

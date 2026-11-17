@@ -43,7 +43,7 @@ async function api(path, { method = 'GET', body, cookie, headers: extra = {} } =
   const text = await res.text();
   let json;
   try { json = JSON.parse(text); } catch { json = text; }
-  return { status: res.status, body: json, cookie: cookieFrom(res) };
+  return { status: res.status, body: json, headers: res.headers, cookie: cookieFrom(res) };
 }
 
 function signedWebhook(payload) {
@@ -263,6 +263,55 @@ test('a forgotten password can be reset with the emailed link, once', async () =
     `UPDATE users SET password_hash = $1 WHERE lower(email) = 'owner@test.cafe'`,
     [hashPassword('supersecret123')],
   );
+});
+
+test('login and reset requests are rate limited per address', async () => {
+  // Clear anything the earlier tests left, so this one owns its window. The
+  // cleanup runs even if an assertion fails, otherwise the counters this test
+  // fills would lock the account for every later test.
+  const wipe = () => query("DELETE FROM rate_limits WHERE key LIKE 'login:%' OR key LIKE 'forgot:%'");
+  await wipe();
+  try {
+    // 11 wrong guesses against one account from one address: the last is refused.
+    let last;
+    for (let i = 0; i < 11; i += 1) {
+      last = await api('/api/auth?action=login', {
+        method: 'POST', headers: { 'x-forwarded-for': '203.0.113.9' },
+        body: { email: 'owner@test.cafe', password: 'definitely-wrong' },
+      });
+    }
+    assert.equal(last.status, 429, 'guessing a password gets cut off');
+    assert.ok(Number(last.headers.get('retry-after') ?? 0) >= 1, 'the wait is told to the client');
+
+    // That account is now locked for any address, which is the point — an
+    // attacker cannot dodge the limit by switching IPs to hit one account.
+    const sameAccount = await api('/api/auth?action=login', {
+      method: 'POST', headers: { 'x-forwarded-for': '203.0.113.10' },
+      body: { email: 'owner@test.cafe', password: 'supersecret123' },
+    });
+    assert.equal(sameAccount.status, 429);
+
+    // A fresh address hitting a different account is not caught by the first
+    // window — it gets a plain 401, not a 429.
+    await wipe();
+    const fresh = await api('/api/auth?action=login', {
+      method: 'POST', headers: { 'x-forwarded-for': '203.0.113.11' },
+      body: { email: 'someone@else.test', password: 'whatever-123' },
+    });
+    assert.equal(fresh.status, 401);
+
+    // Forgot is capped per address too, so it cannot be used to spray mail.
+    let forgot;
+    for (let i = 0; i < 6; i += 1) {
+      forgot = await api('/api/auth?action=forgot', {
+        method: 'POST', headers: { 'x-forwarded-for': '203.0.113.12' },
+        body: { email: 'owner@test.cafe' },
+      });
+    }
+    assert.equal(forgot.status, 429);
+  } finally {
+    await wipe();
+  }
 });
 
 test('an expired reset link is refused', async () => {

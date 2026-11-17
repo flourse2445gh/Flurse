@@ -380,3 +380,16 @@ CREATE TABLE IF NOT EXISTS password_resets (
 
 CREATE INDEX IF NOT EXISTS password_resets_token_idx ON password_resets (token_hash);
 CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets (user_id);
+
+-- ---------------------------------------------------------------------------
+-- Rate limits
+-- ---------------------------------------------------------------------------
+-- Fixed-window counters for the unauthenticated endpoints that take a guessable
+-- secret (login, reset request). Kept in the database because serverless
+-- functions are frozen between requests and run as several copies, so an
+-- in-memory counter would reset on every cold start and never be shared.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key          TEXT PRIMARY KEY,
+  count        INTEGER NOT NULL DEFAULT 0,
+  window_start TIMESTAMPTZ NOT NULL DEFAULT now()
+);

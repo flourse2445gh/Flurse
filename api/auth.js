@@ -13,6 +13,7 @@ import {
 } from '../lib/auth.js';
 import { daysLeft } from '../lib/trial.js';
 import { emailPasswordReset, emailConfigured, appUrl } from '../lib/notify.js';
+import { rateLimit, clearRateLimit, clientIp, tooManyResponse } from '../lib/ratelimit.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 // POST /api/auth?action=login|logout|forgot|reset   GET /api/auth  (current session)
@@ -45,8 +46,13 @@ export default handler(async (req, res) => {
   }
 
   // Ask for a reset link. The response is always the same whether or not the
-  // email exists, so this cannot be used to find out who has an account.
+  // email exists, so this cannot be used to find out who has an account. Capped
+  // per IP as well, so it cannot be turned into a mail-bomb aimed at a stranger.
   if (action === 'forgot') {
+    const ip = clientIp(req);
+    const limited = await rateLimit(`forgot:${ip}`, { max: 5, windowMs: 15 * 60 * 1000 });
+    if (!limited.allowed) return tooManyResponse(res, limited.retryAfterMs);
+
     const { email } = await readJson(req);
     const normalized = String(email ?? '').trim().toLowerCase();
     if (normalized) {
@@ -99,6 +105,15 @@ export default handler(async (req, res) => {
   const normalized = String(email ?? '').trim().toLowerCase();
   if (!normalized || !password) throw new HttpError(400, 'email and password are required');
 
+  // Two keys, so neither a single account nor a single IP can be hammered: an
+  // attacker spraying many accounts is caught by the IP key, and one who
+  // focuses on one account is caught by the email key.
+  const ip = clientIp(req);
+  for (const key of [`login:ip:${ip}`, `login:email:${normalized}`]) {
+    const limited = await rateLimit(key, { max: 10, windowMs: 15 * 60 * 1000 });
+    if (!limited.allowed) return tooManyResponse(res, limited.retryAfterMs);
+  }
+
   const { rows } = await query(
     `SELECT u.id, u.tenant_id, u.password_hash, t.status
        FROM users u JOIN tenants t ON t.id = u.tenant_id
@@ -112,6 +127,13 @@ export default handler(async (req, res) => {
   if (!user || !verifyPassword(password, user.password_hash)) {
     throw new HttpError(401, 'Invalid email or password');
   }
+
+  // A correct password clears the counters, so a real owner who mistyped a few
+  // times is not locked out after they get it right.
+  await Promise.all([
+    clearRateLimit(`login:ip:${ip}`),
+    clearRateLimit(`login:email:${normalized}`),
+  ]);
 
   await query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
   const { token, expiresAt } = await createSession(user.id, user.tenant_id);
