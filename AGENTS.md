@@ -364,3 +364,19 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
   `API_KEY_21ST` exists; a live test then reaches 21st.dev and fails only with
   its own "not authenticated" message, which is the expected signal that the
   wiring is correct.
+
+## Lifecycle rule: suspend by status, never by clearing the token
+
+A suspended shop must keep `wa_access_token`. The **status gate** is what stops
+it replying: `api/webhook.js` drops any tenant that is not `trialing`/`active`,
+`assertTenantWritable` refuses manual replies and order edits, and the reminder
+cron only selects `trialing`/`active`. Clearing the token was never required for
+that, and it broke the one promise the product is sold on: a shop that pays
+after its trial lapsed came back `status='active'` with no token, so it could
+not send a single message. `expireTrials` (lib/trial.js) and
+`applySubscriptionState` (api/payments.js) now keep the token; only the
+operator's **Disconnect** and the shop's own DELETE on `/api/whatsapp` clear it,
+because those are the two places that genuinely mean "forget this number".
+`a shop that pays after its trial lapses gets its number working again` in
+tests/e2e.test.js is the regression guard — it lapses a shop, proves it is
+quiet, pays, and proves the same inbound message becomes an order again.
