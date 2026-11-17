@@ -12,7 +12,7 @@ import {
   setUserPassword,
 } from '../lib/auth.js';
 import { daysLeft } from '../lib/trial.js';
-import { emailPasswordReset, emailConfigured, appUrl } from '../lib/notify.js';
+import { emailPasswordReset, emailConfigured, emailReady, appUrl } from '../lib/notify.js';
 import { rateLimit, clearRateLimit, clientIp, tooManyResponse } from '../lib/ratelimit.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
@@ -71,14 +71,19 @@ export default handler(async (req, res) => {
           businessName: user.business_name,
           link,
         });
-        // With no mail provider the link is logged instead of lost, so the
-        // feature still works on a deployment that has not set a key yet.
-        if (!sent) console.log(`Password reset link for ${normalized}: ${link}`);
+        // Never log the link itself: function logs are visible to anyone with
+        // access to the deployment, and the link is enough to take over the
+        // account. With no mail provider the operator can mint one from the
+        // dashboard instead, so only the fact of the failure is recorded.
+        if (!sent) {
+          console.log(`Password reset mail not delivered for ${normalized} (provider not configured or rejected).`);
+        }
       }
     }
     json(res, 200, {
       ok: true,
       emailConfigured: emailConfigured(),
+      emailReady: emailReady(),
       note: 'Agar ye email registered hai, to reset link bhej diya gaya hai.',
     });
     return;

@@ -58,6 +58,9 @@
       <div class="field"><label for="fgEmail">Email</label><input id="fgEmail" type="email" required autocomplete="email" placeholder="owner@shop.com"></div>
       <div class="error" id="fgError"></div>
       <div class="ok" id="fgOk"></div>
+      <div id="fgSetupNote" class="muted hidden" style="font-size:13px;background:rgba(0,0,0,.03);border-radius:10px;padding:10px 12px">
+        Email service abhi setup ho rahi hai, to link har address par nahi pahunch sakta. Turant madad ke liye <a href="mailto:support@budsbox.app">support@budsbox.app</a> par likhein.
+      </div>
       <button class="btn block" type="submit">Reset link bhejein</button>
       <p class="muted center" style="margin:10px 0 0"><a href="#" id="fgBack">← Log in par wapas</a></p>
     </form>
@@ -397,9 +400,13 @@ $('forgotForm').onsubmit = async (e) => {
   $('fgOk').textContent = '';
   try {
     const r = await api('/api/auth?action=forgot', { method: 'POST', body: JSON.stringify({ email: $('fgEmail').value }) });
-    $('fgOk').textContent = r.emailConfigured
+    // "Ready" means mail can reach any address, not just the provider's own
+    // account owner. Until then, say so instead of promising a mail that a
+    // shopkeeper will never receive.
+    $('fgOk').textContent = r.emailReady
       ? 'Agar ye email registered hai, to reset link bhej diya gaya hai. Inbox check karein.'
-      : 'Reset link ban gaya. Email service abhi off hai — operator ke paas link chala gaya hai.';
+      : 'Request mil gayi. Email service abhi setup ho rahi hai, to link abhi har address par nahi pahunch sakta.';
+    $('fgSetupNote').classList.toggle('hidden', r.emailReady !== false);
   } catch (err) { $('fgError').textContent = err.message; }
 };
 

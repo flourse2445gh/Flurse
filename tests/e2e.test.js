@@ -211,6 +211,8 @@ test('a forgotten password can be reset with the emailed link, once', async () =
   assert.equal(known.status, 200);
   assert.equal(unknown.status, 200);
   assert.equal(known.body.ok, unknown.body.ok);
+  // With no provider key in tests, the app must not claim mail is on its way.
+  assert.equal(known.body.emailReady, false);
 
   // Only the hash is stored — the raw token never touches the database.
   const rows = await query(
