@@ -267,7 +267,7 @@ export default handler(async (req, res) => {
     if (!plan.recurring) throw new HttpError(400, 'This plan is a one-time payment, not a subscription');
     if (!razorpayConfigured()) throw new HttpError(503, 'Payments are not configured yet');
 
-    const rzpPlanId = await ensureMonthlyPlan({ amountCents: plan.priceCents, name: 'BudsBox Pro' });
+    const rzpPlanId = await ensureMonthlyPlan({ amountCents: plan.priceCents, name: `BudsBox ${plan.tier}` });
     const subscription = await createSubscription({
       planId: rzpPlanId,
       tenantId: session.tenant_id,

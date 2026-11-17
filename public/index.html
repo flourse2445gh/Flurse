@@ -17,6 +17,7 @@
           brand:     '#FF6B9D',   // Flower Pink
           brandDark: '#e8558a',
           wa:        '#25D366',   // WhatsApp Green
+          waDark:    '#128C7E',   // WhatsApp Green, dark — for text on tinted chips
           cream:     '#FEF7F0',   // Cream background
           ink:       '#2B2118'
         },
@@ -328,6 +329,9 @@
           <p class="mt-1 text-[13px] text-ink/50">Naya ya chhota shop</p>
           <p class="mt-4 text-4xl font-extrabold" data-price data-mo="₹999" data-yr="₹9,990">₹999</p>
           <p class="text-[13px] text-ink/50" data-per>/month</p>
+          <p class="hidden text-[12px] font-semibold text-waDark bg-wa/10 rounded-lg px-2.5 py-1 mt-2" data-yr-only>
+            Mahine ka sirf <b>₹833</b> · <b>₹1,998</b> bachat
+          </p>
           <p class="mt-4 text-[13px] font-semibold text-brandDark bg-brand/8 rounded-lg px-3 py-2">
             Har mahine <b>1,500</b> AI replies
           </p>
@@ -354,6 +358,9 @@
             <p class="mt-1 text-[13px] text-white/50">Roz orders aate hain</p>
             <p class="mt-4 text-4xl font-extrabold" data-price data-mo="₹1,999" data-yr="₹19,990">₹1,999</p>
             <p class="text-[13px] text-white/50" data-per>/month</p>
+            <p class="hidden text-[12px] font-semibold text-white bg-wa/25 rounded-lg px-2.5 py-1 mt-2" data-yr-only>
+              Mahine ka sirf <b>₹1,666</b> · <b>₹3,998</b> bachat
+            </p>
             <p class="mt-4 text-[13px] font-semibold text-brand bg-brand/15 rounded-lg px-3 py-2">
               Har mahine <b>4,000</b> AI replies
             </p>
@@ -376,6 +383,9 @@
           <p class="mt-1 text-[13px] text-ink/50">Bhara hua, busy shop</p>
           <p class="mt-4 text-4xl font-extrabold" data-price data-mo="₹3,999" data-yr="₹39,990">₹3,999</p>
           <p class="text-[13px] text-ink/50" data-per>/month</p>
+          <p class="hidden text-[12px] font-semibold text-waDark bg-wa/10 rounded-lg px-2.5 py-1 mt-2" data-yr-only>
+            Mahine ka sirf <b>₹3,333</b> · <b>₹7,998</b> bachat
+          </p>
           <p class="mt-4 text-[13px] font-semibold text-brandDark bg-brand/8 rounded-lg px-3 py-2">
             Har mahine <b>10,000</b> AI replies
           </p>
@@ -511,6 +521,10 @@
     });
     document.querySelectorAll('[data-per]').forEach((el) => {
       el.textContent = yearly ? '/year' : '/month';
+    });
+    // The "per month, and how much you save" line only makes sense on yearly.
+    document.querySelectorAll('[data-yr-only]').forEach((el) => {
+      el.classList.toggle('hidden', !yearly);
     });
     moBtn.className = `px-6 py-2.5 rounded-full font-bold text-[14px] transition ${yearly ? 'text-ink/60' : 'bg-ink text-white'}`;
     yrBtn.className = `px-6 py-2.5 rounded-full font-bold text-[14px] transition ${yearly ? 'bg-ink text-white' : 'text-ink/60'}`;

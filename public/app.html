@@ -930,8 +930,15 @@ function plansForPeriod() {
 }
 
 // The one-line pitch under a plan name, e.g. "1,500 AI replies/mahine · naya shop".
+// A yearly plan also shows what it works out to per month, so the owner can
+// compare it with the monthly price without doing the division.
 function planBlurb(p) {
-  return `${p.aiReplies.toLocaleString('en-IN')} AI replies/mahine · ${PLAN_BLURB[p.tier] ?? ''}`;
+  if (p.billing !== 'yearly') {
+    return `${p.aiReplies.toLocaleString('en-IN')} AI replies/mahine · ${PLAN_BLURB[p.tier] ?? ''}`;
+  }
+  const perMonth = Math.round(p.priceCents / 12 / 100);
+  const saving = Math.round((p.priceCents / 100) * 0.2); // two of the ten months are free
+  return `${p.aiReplies.toLocaleString('en-IN')} AI replies/mahine · mahine ka ₹${perMonth.toLocaleString('en-IN')} · ₹${saving.toLocaleString('en-IN')} bachat`;
 }
 
 function renderPlanList() {
