@@ -434,3 +434,27 @@ once to test signup, and sending mail to it reaches a third party. Do not put it
 in code, tests, seed data, or a manual send. Test mail only against the account
 owner's own address (`startt.247@gmail.com`), which is also the only address a
 bare Resend key can reach.
+
+## Free replies: the questions that repeat are answered without a model
+
+`lib/replies.js` answers the questions a florist gets all day — price, payment,
+address, timings, delivery, order status — from the shop's own catalog and
+profile, with no model call at all. The payment-QR shortcut was the first of
+these; this is the same idea generalised, and it is where most of a shop's AI
+cost would otherwise go.
+
+The rules that keep it safe:
+- Only a clear question is answered free. `freeIntent()` finds the topic and
+  `looksLikeOrder()` vetoes it: a message that asks for something ("2 roses bhej
+  do", "ek bouquet chahiye") always goes through the normal parse, so its items
+  and delivery details are never lost to save a paisa.
+- A topic with nothing written down (no address on file) returns null and the
+  model takes over, so a missing field never becomes a wrong or empty reply.
+- `createOrderFromMessage` skips `parseOrder` entirely for a pure question, so
+  the saving is real and not just the reply call.
+- The free path is surfaced as `source: 'free'` in the dashboard preview, with
+  the wording "AI credit kharch nahi hua", so the owner can see it working.
+
+Keep the intent order in `lib/replies.js` (payment, status, location, hours,
+delivery, then price) — price last so "delivery kitna?" is a delivery question,
+not a price one.

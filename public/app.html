@@ -1189,13 +1189,19 @@ $('tryBtn').onclick = async () => {
   try {
     const out = await api('/api/shop?preview', { method: 'POST', body: JSON.stringify({ message: text }) });
     const live = out.source.startsWith('llm');
+    const free = out.source === 'free';
+    const sourceLabel = free
+      ? 'Seedha shop ke data se — <b>AI credit kharch nahi hua</b>'
+      : live
+        ? `AI: <b>${escapeHtml(out.source.replace('llm:', ''))}</b>`
+        : 'AI offline — simple reply';
     $('tryOut').innerHTML = `
       <div class="card flat" style="background:var(--surface-2);padding:12px 14px">
         <p style="margin:0;white-space:pre-wrap">${escapeHtml(out.reply)}</p>
       </div>
       <p class="muted" style="margin:0;font-size:11px">
         Bhasha: <b>${escapeHtml(out.language)}</b> ·
-        ${live ? `AI: <b>${escapeHtml(out.source.replace('llm:', ''))}</b>` : 'AI offline — simple reply'}
+        ${sourceLabel}
         ${out.providers?.length ? ` · providers: ${out.providers.map(escapeHtml).join(', ')}` : ' · koi AI key nahi mili'}
       </p>`;
   } catch (err) { $('tryOut').innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`; }

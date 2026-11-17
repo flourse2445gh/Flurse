@@ -1,6 +1,7 @@
 import { query } from '../lib/db.js';
 import { requireSession, assertTenantWritable } from '../lib/auth.js';
-import { draftReply, availableProviders, parseOrder } from '../lib/ai.js';
+import { draftReply, availableProviders, parseOrder, detectLanguage, matchCatalogItems } from '../lib/ai.js';
+import { freeReply, freeIntent, looksLikeOrder } from '../lib/replies.js';
 import { handler, readJson, json, error, requireMethod, HttpError } from '../lib/http.js';
 import { publicBaseUrl } from '../lib/whatsapp.js';
 import crypto from 'node:crypto';
@@ -138,11 +139,34 @@ async function previewReply(req, res, session) {
     ),
   ]);
 
-  // Parse exactly like the webhook does, then present the order as still new:
-  // unpaid, and with the details the customer has not given yet. That is the
-  // first reply a shop owner wants to see.
-  const parsed = await parseOrder(text, productsResult.rows.filter((p) => p.active !== false));
+  // A clear question that is not also an order is answered from the shop's own
+  // catalog and profile, with no model call at all — exactly as the webhook
+  // does — so an owner asking "kitna?" in the preview sees the free reply and
+  // that it cost nothing.
+  const orderable = productsResult.rows.filter((p) => p.active !== false);
+  const freeOnly = Boolean(freeIntent(text)) && !looksLikeOrder(text);
+  const parsed = freeOnly
+    ? { items: [], details: {}, source: 'free' }
+    : await parseOrder(text, orderable);
   const totalCents = parsed.items.reduce((sum, i) => sum + i.unitPriceCents * i.quantity, 0);
+
+  const free = freeReply({
+    tenant: tenantResult.rows[0],
+    products: orderable,
+    messageText: text,
+    items: parsed.items.length ? parsed.items : matchCatalogItems(text, orderable),
+    openOrder: null,
+  });
+  if (free) {
+    json(res, 200, {
+      reply: free,
+      language: detectLanguage(text),
+      source: 'free',
+      providers: availableProviders().map((p) => p.name),
+      errors: [],
+    });
+    return;
+  }
 
   const drafted = await draftReply({
     tenant: tenantResult.rows[0],

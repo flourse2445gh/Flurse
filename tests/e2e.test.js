@@ -1453,6 +1453,62 @@ test('shop profile settings round-trip and are tenant scoped', async () => {
   assert.equal(cleared.body.settings.shop_address, null, 'blank clears the field');
 });
 
+test('the preview answers a profile question for free, and a real question with the model', async () => {
+  await query(
+    "UPDATE tenants SET shop_address = '12 Gandhi Road, Koramangala', shop_hours = '8am-9pm daily', shop_delivery = 'Free in Koramangala, 3 hours' WHERE slug = 'test-cafe'",
+  );
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'preview-key';
+  try {
+    // A profile question is answered with no model call at all.
+    const free = await api('/api/shop?preview', {
+      method: 'POST', cookie: login.cookie,
+      body: { message: 'aap kahan ho?' },
+    });
+    assert.equal(free.status, 200);
+    assert.equal(free.body.source, 'free');
+    assert.match(free.body.reply, /Gandhi Road/);
+    assert.equal(fake.seen.length, 0, 'the preview did not call a provider for a profile question');
+
+    // A real question that the profile cannot answer still reaches the model.
+    const en = await api('/api/shop?preview', {
+      method: 'POST', cookie: login.cookie,
+      body: { message: 'Hi, do you have red roses?' },
+    });
+    assert.equal(en.status, 200);
+    assert.equal(en.body.source, 'llm:groq');
+    assert.match(en.body.reply, /roses are available/);
+    assert.deepEqual(en.body.providers, ['groq']);
+
+    const hi = await api('/api/shop?preview', {
+      method: 'POST', cookie: login.cookie,
+      body: { message: 'क्या गुलाब है?' },
+    });
+    assert.equal(hi.body.language, 'hi');
+    assert.match(hi.body.reply, /गुलाब/);
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+    // Leave no profile fields behind: a later test asks "are you open today?"
+    // and expects the model to answer it.
+    await query(
+      "UPDATE tenants SET shop_address = NULL, shop_hours = NULL, shop_delivery = NULL WHERE slug = 'test-cafe'",
+    );
+  }
+
+  const anon = await api('/api/shop?preview', { method: 'POST', body: { message: 'hi' } });
+  assert.equal(anon.status, 401);
+});
+
 test('the reply preview mirrors the customer language using a live provider', async () => {
   const fake = startFakeProvider();
   await new Promise((r) => fake.server.listen(0, r));
@@ -1852,6 +1908,155 @@ test('asking how to pay sends the shop QR and never spends an AI call', async ()
     assert.ok(rows.some((r) => r.direction === 'outbound'), 'the answer is stored');
   } finally {
     globalThis.fetch = realFetch;
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
+// -- free replies ----------------------------------------------------------
+
+// A price, address, timing or delivery question is answered from the shop's own
+// catalog and profile with no model call, so the shop pays nothing for the
+// questions that make up most of its day.
+test('a profile question is answered for free, with no AI call', async () => {
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active', shop_address = '12 Gandhi Road, Koramangala', shop_hours = '8am-9pm daily', shop_delivery = 'Free in Koramangala, 3 hours' WHERE slug = 'test-cafe'",
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'free-key';
+
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.SENT' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  const { createOrderFromMessage } = await import('../lib/orders.js');
+  const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+  const tenant = t[0];
+
+  try {
+    const cases = [
+      ['aap kahan ho?', /Gandhi Road/],
+      ['timing kya hai?', /8am-9pm/],
+      ['delivery karte ho?', /Koramangala/],
+    ];
+    for (const [i, [text, expect]] of cases.entries()) {
+      const out = await createOrderFromMessage({
+        tenant,
+        message: { from: `9190000${i}`, displayName: 'Q', text, waMessageId: `wam_free_${i}` },
+      });
+      assert.ok(out, `answered: ${text}`);
+      assert.equal(out.replySource, 'free', `"${text}" is answered without a model`);
+      assert.match(out.reply, expect);
+    }
+    assert.equal(fake.seen.length, 0, 'no AI provider was called for any of the profile questions');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+    await query(
+      "UPDATE tenants SET shop_address = NULL, shop_hours = NULL, shop_delivery = NULL WHERE slug = 'test-cafe'",
+    );
+  }
+});
+
+// The one that matters most for cost: a price question is answered from the
+// catalog, and the item the customer named is priced back to them, all for free.
+test('a price question is answered from the catalog, with no AI call', async () => {
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'price-key';
+  try {
+    const { createOrderFromMessage } = await import('../lib/orders.js');
+    const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+    const tenant = t[0];
+
+    const out = await createOrderFromMessage({
+      tenant,
+      message: { from: '91900009999', displayName: 'Buyer', text: 'Latte ka price kya hai?', waMessageId: 'wam_free_price' },
+    });
+    assert.ok(out);
+    assert.equal(out.replySource, 'free', 'a price question does not reach the model');
+    assert.match(out.reply, /Latte/);
+    assert.match(out.reply, /₹/);
+    assert.equal(fake.seen.length, 0, 'no AI provider was called');
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
+// A question the shop has no answer written down for must still reach the model,
+// so a missing field never turns into a wrong or empty reply.
+test('a question the profile cannot answer still goes to the model', async () => {
+  await query(
+    "UPDATE tenants SET shop_address = NULL, shop_hours = NULL, shop_delivery = NULL, wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'fall-key';
+  try {
+    const { createOrderFromMessage } = await import('../lib/orders.js');
+    const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+    const tenant = t[0];
+
+    const out = await createOrderFromMessage({
+      tenant,
+      message: { from: '91900008888', displayName: 'Asker', text: 'aap kahan ho?', waMessageId: 'wam_free_fall' },
+    });
+    assert.ok(out);
+    assert.ok(String(out.replySource).startsWith('llm:'), `the model took over (got ${out.replySource})`);
+    assert.ok(fake.seen.length > 0, 'the provider was called when the profile had no address');
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
+// A normal order message is not a question, so the free path leaves it alone and
+// the model drafts the order reply as before.
+test('an order message is not intercepted by the free path', async () => {
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'order-key';
+  try {
+    const { createOrderFromMessage } = await import('../lib/orders.js');
+    const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+    const tenant = t[0];
+
+    const out = await createOrderFromMessage({
+      tenant,
+      message: { from: '91900007777', displayName: 'Orderer', text: '2 latte bhej do', waMessageId: 'wam_free_order' },
+    });
+    assert.ok(out);
+    assert.ok(String(out.replySource).startsWith('llm:'), `an order is drafted by the model (got ${out.replySource})`);
+    assert.ok(out.order, 'the order is still created');
+  } finally {
     process.env = saved;
     await new Promise((r) => fake.server.close(r));
   }
