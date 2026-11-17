@@ -24,6 +24,10 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
 
 - `npm run dev` — dev server on :3000, uses `.env` (local Postgres)
 - `npm test` — runs `node --test tests/*.test.js` against the local DB
+  (`TEST_DATABASE_URL`, default `postgres://budsbox:budsbox@localhost:5432/budsbox_test`).
+  If localhost:5432 refuses, Postgres is in a sidecar — find it with
+  `grep ':1538 ' /proc/net/tcp` (hex for 5432) and pass that host via
+  `TEST_DATABASE_URL`.
 - `npm run migrate` — applies `db/schema.sql`
 
 ## Deploy
