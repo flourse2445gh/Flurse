@@ -418,3 +418,11 @@ a recipient:
 anyone, and the forgot endpoint and screen report it. A failed send logs only
 the fact of the failure — never the reset link, which is enough to take over an
 account and is visible to anyone with access to the deployment logs.
+
+A Gmail App Password is **exactly 16 letters** (Google shows it as four groups
+of four). A longer value is almost always the account password pasted by
+mistake, and Gmail answers every send with `535 Username and Password not
+accepted`, which reads like a server fault. `gmailReady()` therefore requires the
+sanitized value to be exactly 16 letters, and the failure log prints the account
+and the sanitized length (never the secret) — that is what located the bad
+value. When a Gmail send starts failing, check that length first.
