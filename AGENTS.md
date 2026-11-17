@@ -344,3 +344,23 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
   access, so a forgotten env var cannot expose every shop.
 - Webhook replies are best-effort: the message is stored before the send is
   attempted, so an outage never loses a shop's reply.
+
+## Agent runtime notes (not BudsBox app code)
+
+- The agent server is a **hosted runtime**, not `localhost:8001`. Use
+  `$RUNTIME_URL` (e.g. `https://<runtime-id>.prod-runtime.all-hands.dev`) and
+  authenticate with `X-Session-API-Key` read from PID 1's environment.
+  `localhost:8001` is unreachable here, so the local Agent Canvas recipe
+  does not apply.
+- MCP servers are registered through the agent-server settings API, not a
+  JSON file: `POST /api/settings/mcp/{name}` with
+  `{url, transport, headers}`; `transport` is `streamable-http`. Secrets go
+  through `PUT /api/settings/secrets` as `{name, value}`. Header values may
+  reference a secret as `${NAME}` and the server expands it at connect time.
+- `POST /api/mcp/test` validates a candidate server without persisting it and
+  returns the advertised tool names on success. Use it to verify before saving.
+- The `21st` MCP server (`https://21st.dev/api/mcp`) is registered and its
+  config persists. It stays unauthenticated until a secret named
+  `API_KEY_21ST` exists; a live test then reaches 21st.dev and fails only with
+  its own "not authenticated" message, which is the expected signal that the
+  wiring is correct.
