@@ -12,12 +12,24 @@ Vercel marketplace.
 ## What works today
 
 - Shop self-onboarding + secure login (scrypt password hashing, signed session cookies)
-- WhatsApp Cloud API webhook: signature verification, message receipt, AI reply
-- AI order parsing (OpenAI when configured, deterministic catalog parser otherwise)
-- Per-shop dashboard: orders, revenue, customer counts, status updates
-- Hourly-style cron that expires overdue trials and auto-disconnects those shops
+- WhatsApp Cloud API webhook: signature verification, idempotent message receipt
+- One-click WhatsApp connect via Meta Embedded Signup (or hand-pasted ids)
+- AI replies in the customer's own language (English / Hinglish / Hindi), with a
+  per-plan fair-use allowance and a zero-cost keyword fallback past it, so a
+  shop never goes silent
+- Orders carry the delivery details the AI lifts from the thread — delivery or
+  pickup, address, date-time, recipient name and phone
+- Money before flowers: the shop's own UPI QR is sent on "payment kaise karu?"
+  without spending an AI call, and an order is not fulfilled until it is marked
+  paid
+- Per-shop dashboard: orders, revenue, customer counts, chat inbox, catalog
+- WhatsApp connection health: warns the owner before the 60-day token expires
+  and flags a send that fails, instead of going quiet silently
+- Cron that expires overdue trials and auto-disconnects those shops, and logs
+  tokens that are about to lapse
 - Operator panel: all shops, live status, order counts, trial countdown
-- Plan upgrade via Razorpay checkout that reactivates a suspended shop
+- Plan upgrade via Razorpay — a monthly auto-renew mandate or a one-time yearly
+  payment — that reactivates a suspended shop
 
 ## Logging in
 
@@ -47,10 +59,13 @@ api/                    serverless functions (one file per route)
 lib/                    shared code
   db.js                 Postgres pool
   auth.js               password hashing + sessions
-  whatsapp.js           Cloud API send + signature verification
-  ai.js                 order parsing
+  whatsapp.js           Cloud API send + signature verification + Embedded Signup
+  wahealth.js           token-expiry / send-failure watch
+  ai.js                 reply drafting + order parsing (provider chain)
   trial.js              trial window + expiry
   orders.js             order persistence
+  plans.js              plan catalogue (prices + AI allowance)
+  razorpay.js           checkout, subscriptions, webhook verification
   http.js               request helpers, error handling
 db/schema.sql           Postgres schema (run once)
 public/                 static frontend
@@ -101,5 +116,7 @@ tests/e2e.test.js       end-to-end tests against a real Postgres
   asset ids Meta returns. The exchange, the WABA subscription and the phone
   number lookup all run server-side, so the shop's access token never reaches
   the page.
-- Payment upgrade is stubbed and captures nothing — wire a real PSP before
-  taking money.
+- Razorpay is the source of truth for money: a checkout is only marked paid
+  when the signed webhook says so, never when the browser says so. The monthly
+  mandate is charged by Razorpay itself; a halted mandate suspends the shop
+  rather than serving it free.
