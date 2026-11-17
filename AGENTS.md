@@ -396,12 +396,25 @@ mistyped is not locked out. The reset request is keyed per IP (5 / 15 min) so it
 cannot be used to spray a stranger's inbox. Any new unauthenticated endpoint
 that takes a secret or sends mail must call `rateLimit()` too.
 
-## Production needs RESEND_API_KEY for owner email
+## Email goes out over Gmail until a domain exists
 
-`lib/notify.js` sends owner alerts and password-reset links through Resend. With
-no `RESEND_API_KEY`, `sendEmail` returns `false` and the code logs the message
-instead — orders and resets still work, but **no email leaves the server**, so a
-shopkeeper who forgot their password never receives the link. Set
-`RESEND_API_KEY` (and `EMAIL_FROM` once a domain is verified) in Vercel
-production before launch. `emailConfigured()` reports the state and the forgot
-endpoint returns it, which is how the live check caught this.
+`lib/notify.js` sends owner alerts and password-reset links. A Resend key alone
+is not enough: the shared `onboarding@resend.dev` sender is refused with a 403
+for every address but the Resend account owner's, so a shopkeeper who forgot
+their password would never receive the link. `vercel.app` cannot fix this
+either — it is Vercel's domain, so its DNS records cannot be edited to verify it
+with Resend.
+
+So `sendEmail` has two transports and prefers the first that can actually reach
+a recipient:
+1. **Resend**, only when `RESEND_API_KEY` is paired with an `EMAIL_FROM` on a
+   domain we own (`resendCanReachAnyone()`). Verifying the domain later switches
+   this on with no code change.
+2. **Gmail SMTP** (`GMAIL_USER` + `GMAIL_APP_PASSWORD`, an App Password, not the
+   account password). Google signs it with its own SPF/DKIM, so it reaches any
+   recipient and lands in the inbox. This carries mail until a domain exists.
+
+`emailReady()` is the honest signal: it is true only when a transport can reach
+anyone, and the forgot endpoint and screen report it. A failed send logs only
+the fact of the failure — never the reset link, which is enough to take over an
+account and is visible to anyone with access to the deployment logs.
