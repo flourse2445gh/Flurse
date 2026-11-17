@@ -236,6 +236,18 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
   derived from the price, so the owner sees the per-month equivalent and the
   saving without doing the division. Yearly is ten months' price, so the
   "2 mahine free" claim is always true; a test asserts it.
+- **Every card carries a helper-vs-plan saving, in both periods.** The line
+  reads "Sabse sasta helper (₹8,000) se bhi ₹7,001/mahina bachat" and swaps to
+  the yearly figure with the toggle, so the monthly view gets the same value
+  message the yearly view has. The figure is arithmetic against the *cheapest*
+  helper (₹8,000/mahina), never a range's top end — a comparison that can only
+  under-sell. Yearly saving is `8000×12 − yearly price`, monthly is
+  `8000 − monthly price`. A test recomputes both from the prices, so a price
+  change cannot leave a stale number on the page.
+- **`public/app.html` loads plain `app.css`, not Tailwind.** Utility classes
+  there (`rounded-full`, `bg-ink/5`, `text-[12px]`) are undefined and render
+  unstyled. Add a component class to `app.css` (`.period`, `.value-note`)
+  instead. Only `index.html` has the Tailwind CDN.
 - `/admin` is **locked by default**: with `ADMIN_SECRET` unset the admin API
   answers 401 and the panel shows only the gate. Set `ADMIN_SECRET` in Vercel
   and redeploy to open it with that password. An unset secret never means open
