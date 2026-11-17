@@ -42,11 +42,16 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
   `git push https://flourse2445gh:${GITHUB_TOKEN}@github.com/flourse2445gh/Flurse.git gate-manual-whatsapp-connect:gate-manual-whatsapp-connect`
 
 ## Test kaise chalate hain
-- `npm test` (node --test). **61 tests** hain, sab pass hone chahiye.
-- Postgres chahiye. Is env me ek **sidecar Postgres** `172.17.0.2:5432` par
-  chalta hai (localhost refuse kar sakta hai). Isliye:
+- `npm test` (node --test). **67 tests** hain, sab pass hone chahiye.
+- Postgres chahiye. Pehle ek **sidecar Postgres** `172.17.0.2:5432` par chalta
+  tha (localhost refuse kar sakta hai). Sidecar na ho to local cluster chalao:
   ```
-  TEST_DATABASE_URL="postgres://budsbox:budsbox@172.17.0.2:5432/budsbox_test" npm test
+  export PGBIN=/usr/lib/postgresql/17/bin
+  sudo mkdir -p /var/lib/pgtest && sudo chown postgres:postgres /var/lib/pgtest
+  sudo -u postgres $PGBIN/initdb -D /var/lib/pgtest -U b --auth=trust
+  sudo -u postgres $PGBIN/pg_ctl -D /var/lib/pgtest -l /tmp/pg.log -o "-p 5432" start
+  sudo -u postgres $PGBIN/psql -h 127.0.0.1 -U b -d postgres -c "create database budsbox_test;"
+  sudo -u postgres $PGBIN/psql -h 127.0.0.1 -U b -d postgres -c "create role budsbox login password 'budsbox' superuser;"
   ```
   Host dhoondhne ke liye `grep ':1538 ' /proc/net/tcp` (1538 = hex 5432).
 - **Env leak se bacho:** prod `DATABASE_URL`/WhatsApp/Razorpay keys shell me
@@ -58,13 +63,14 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
   products, shop (profile + `?preview`), webhook, whatsapp, cron/trial.
   **Vercel Hobby par sirf 12 functions allowed hain** aur `api/` already 12 par
   hai — naya endpoint banane ke bajaye kisi purani file me jodo.
-- `lib/` — ai.js (reply+parse), auth.js, db.js, http.js, orders.js, plans.js,
-  razorpay.js, trial.js, wahealth.js (token-expiry watch), whatsapp.js
+- `lib/` — ai.js (reply+parse), auth.js, db.js, http.js, notify.js (owner
+  email), orders.js, plans.js, razorpay.js, samples.js (starter catalog),
+  trial.js, wahealth.js (token-expiry watch), whatsapp.js
 - `public/` — admin.html, app.html, index.html, assets/
 - `db/schema.sql`, `vercel.json`, `tests/e2e.test.js`, `scripts/`
 
 ## Jo kaam HO CHUKA hai (dobara mat banao)
-- Multi-tenant backend + **61 passing tests**
+- Multi-tenant backend + **67 passing tests**
 - Operator panel: saari shops, trial countdown, order count,
   Suspend / Activate / Disconnect / Export CSV
 - Shop dashboard: orders, catalog (rupees), chat inbox, manual reply
@@ -83,21 +89,28 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 - **WhatsApp token expiry watch** — 60-din token expire hone se 7 din pehle
   dashboard banner, aur send fail hone par turant alert (pehle chup-chaap band
   ho jata tha)
-- Trial cron: expired trial -> auto suspend + token revoke (daily 03:00 IST)
+- **Naye order par owner ko alert** — naya order aane par owner ko poori order
+  wali email (`RESEND_API_KEY` chahiye) + dashboard pe "naya order" badge aur
+  **order chime** (local sound file, zero AI credit) jo dekhne par clear hote
+  hain; email band ho to app screen par saaf likhta hai
+- **Nayi shop ka starter catalog** — signup par 8 common flower items seed hote
+  hain (`is_sample` flag), taaki pehla message hi order ban sake
+- **Delivery-day reminder** — kal delivery wale order ko ek reminder; WhatsApp
+  24-ghante window khuli ho to customer ko, warna owner ko email
+- Trial cron: expired trial -> auto suspend + token revoke, token watch, aur
+  delivery reminders (daily 03:00 IST)
 
-## Jo ABHI BAAKI hai (is order me karo — asli launch blockers)
-1. **Naye order par owner ko koi alert nahi jaata.** Abhi dukaandaar ko
-   dashboard kholke dekhna padta hai. Ek naya order aaye to owner ko email
-   (`owner_email` already store hota hai) ya dashboard pe live badge/notification
-   milna chahiye. Ye ek **sabse bada launch gap** hai — iske bina trial shop
-   ko faayda dikhta hi nahi.
-2. **Nayi shop ka catalog khaali hota hai.** Order banane ke liye shop ko pehle
-   apna catalog add karna padta hai. Naye shop ke liye kuch common flower items
-   (gulab, bouquet, etc.) pre-seed karo, ya onboarding me ek chhota "add your
-   first items" step jodo — warna AI pehle din kuch nahi kar payega.
-3. **Order confirmation / delivery-day message** — abhi customer ko sirf reply
-   aur QR jaata hai. Proper order confirmation aur delivery ke din ka reminder
-   jodna hai (sirf tab jab landing page usko advertise kare — "sach" ka rule).
+## Jo ABHI BAAKI hai (asli launch blockers, is order me)
+1. **Email provider ka key lagana.** Owner-alert email ka poora code ready aur
+   tested hai, par `RESEND_API_KEY` set hone tak bhejta nahi (dashboard badge
+   phir bhi chalta hai, aur app "Email alerts off" bata deta hai). User se
+   Resend key maango aur Vercel env me daalo, phir redeploy karo.
+2. **Landing page copy update** — ab jo features live hain (owner email alert,
+   starter catalog, delivery reminder) unhe landing page par add karo, aur jo
+   nahi hai wo mat likho (sach ka rule).
+3. **Meta number live karna** — App Mode abhi "Development" hai, isliye sirf
+   test numbers ko reply jaata hai. Live customers ke liye Business Verification
+   + App Review chahiye (user ke account par).
 
 ## Jo sirf USER kar sakta hai (tum nahi kar sakte, usse maango)
 - Meta WhatsApp Business / Facebook Developer app (Embedded Signup ke liye) —
@@ -138,5 +151,6 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 ## Uske baad user kya likhe
 Prompt paste karne ke baad ye line likh do:
 
-> "Upar ka context padh lo. Pehle mera #1 (naye order par owner ko alert) karo.
-> Postgres setup karke tests chalao, phir deploy karke live par dikhao."
+> "Upar ka context padh lo. Owner-alert email ke liye RESEND_API_KEY maango,
+> phir landing page copy update karo (jo features ab live hain). Tests chalane
+> ke baad deploy karke live par dikhao."

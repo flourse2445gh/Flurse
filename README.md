@@ -19,14 +19,21 @@ Vercel marketplace.
   shop never goes silent
 - Orders carry the delivery details the AI lifts from the thread — delivery or
   pickup, address, date-time, recipient name and phone
+- A new order reaches the owner: an email with the full order, plus a "naya
+  order" badge and a chime on the dashboard that clear once seen (the chime is
+  a local sound file, so it costs no AI credit and no message)
+- A new shop starts with a starter flower catalog, so the first customer message
+  can become an order instead of "which flower?"
+- A delivery due tomorrow gets one reminder to the customer (WhatsApp, while the
+  24-hour window is open) or, failing that, an email to the owner
 - Money before flowers: the shop's own UPI QR is sent on "payment kaise karu?"
   without spending an AI call, and an order is not fulfilled until it is marked
   paid
 - Per-shop dashboard: orders, revenue, customer counts, chat inbox, catalog
 - WhatsApp connection health: warns the owner before the 60-day token expires
   and flags a send that fails, instead of going quiet silently
-- Cron that expires overdue trials and auto-disconnects those shops, and logs
-  tokens that are about to lapse
+- Cron that expires overdue trials and auto-disconnects those shops, logs
+  tokens that are about to lapse, and sends delivery-day reminders
 - Operator panel: all shops, live status, order counts, trial countdown
 - Plan upgrade via Razorpay — a monthly auto-renew mandate or a one-time yearly
   payment — that reactivates a suspended shop
@@ -55,12 +62,14 @@ api/                    serverless functions (one file per route)
   admin.js              operator view (cross-tenant), bearer-secret gated
   payments.js           plan list + Razorpay checkout / verify
   health.js             liveness + database reachability
-  cron/trial.js         trial expiry -> suspend + disconnect
+  cron/trial.js         trial expiry -> suspend + disconnect, token watch, delivery reminders
 lib/                    shared code
   db.js                 Postgres pool
   auth.js               password hashing + sessions
   whatsapp.js           Cloud API send + signature verification + Embedded Signup
   wahealth.js           token-expiry / send-failure watch
+  notify.js             owner alert + delivery-reminder email (Resend)
+  samples.js            starter catalog for a new shop
   ai.js                 reply drafting + order parsing (provider chain)
   trial.js              trial window + expiry
   orders.js             order persistence
@@ -103,6 +112,8 @@ tests/e2e.test.js       end-to-end tests against a real Postgres
 | `WHATSAPP_APP_ID` | Embedded Signup app id (public) |
 | `WHATSAPP_ES_CONFIG_ID` | Embedded Signup configuration id (public) |
 | `OPENAI_API_KEY` | AI order parsing (falls back to the catalog parser) |
+| `RESEND_API_KEY` | owner alert + delivery-reminder email (off = dashboard only) |
+| `EMAIL_FROM` | sender for those emails (defaults to Resend's onboarding address) |
 | `TRIAL_DAYS` | trial length, default `14` |
 | `CRON_SECRET` | protects the trial cron |
 

@@ -340,3 +340,21 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS ai_reply BOOLEAN NOT NULL DEFAULT 
 
 CREATE INDEX IF NOT EXISTS messages_ai_usage_idx
   ON messages (tenant_id, created_at) WHERE ai_reply AND direction = 'inbound';
+
+-- ---------------------------------------------------------------------------
+-- Owner alerts
+-- ---------------------------------------------------------------------------
+-- A new order used to land in the dashboard with nothing to tell the owner it
+-- arrived, so a trial shop saw no value. `orders_seen_at` is the watermark the
+-- dashboard compares against to count orders the owner has not looked at yet.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS orders_seen_at TIMESTAMPTZ;
+
+-- Seeded starter items so a brand-new shop can take an order on day one,
+-- instead of facing an empty catalog and a deaf AI. The flag lets the
+-- dashboard nudge the owner to set their own prices, and clears the moment the
+-- owner edits the item.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_sample BOOLEAN NOT NULL DEFAULT false;
+
+-- Delivery-day reminder, sent once by the daily cron so the customer is not
+-- surprised on the day. The timestamp keeps a later run from sending it twice.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ;

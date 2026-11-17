@@ -8,6 +8,7 @@ import {
 } from '../lib/orders.js';
 import { handler, readRaw, json, error, requireMethod } from '../lib/http.js';
 import { recordSendOutcome } from '../lib/wahealth.js';
+import { emailNewOrder } from '../lib/notify.js';
 
 // GET /api/webhook  — Meta's subscription handshake
 function verify(req, res) {
@@ -68,7 +69,7 @@ export default handler(async (req, res) => {
 
 async function handleMessage(message) {
   const { rows: tenants } = await query(
-    `SELECT id, status, plan, wa_phone_number_id, wa_access_token, business_name,
+    `SELECT id, status, plan, wa_phone_number_id, wa_access_token, business_name, owner_email,
             shop_address, shop_hours, shop_delivery, shop_tone, shop_instructions,
             shop_upi_id, shop_payment_name, shop_payment_qr_token
        FROM tenants WHERE wa_phone_number_id = $1`,
@@ -189,4 +190,18 @@ async function handleMessage(message) {
     orderId: result.order ? result.order.id : null,
     body: result.reply,
   });
+
+  // A brand-new order is the one thing a shop owner must not miss, and until
+  // now nothing told them. Fire the email after the reply is out, and never
+  // let a mail failure touch the message handling above.
+  if (result.newOrder) {
+    emailNewOrder({
+      tenant,
+      order: result.newOrder,
+      items: result.items,
+      customer: { waId: message.from, displayName: message.displayName },
+    }).then((sent) => {
+      if (!sent) console.warn('New order email not sent for', tenant.slug);
+    }).catch((err) => console.error('New order email failed', err.message));
+  }
 }

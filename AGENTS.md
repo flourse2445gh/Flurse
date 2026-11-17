@@ -255,6 +255,41 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
     message cannot tell a dead token (401/190) from one bad recipient (131030).
     A `token_expiring` alert only appears when an expiry is stored, so a shop
     connected by hand before this change shows no false warning.
+- **A new order reaches the owner, not just the dashboard.** `createOrderFromMessage`
+  returns a `newOrder` flag (true only on the first insert, so a follow-up that
+  adds details never re-alerts). `api/webhook.js` then calls `emailNewOrder`
+  from `lib/notify.js` best-effort, after the reply is queued, so an email
+  outage cannot break a reply. The dashboard also carries a live "naya order"
+  badge: it counts orders newer than `tenants.orders_seen_at`
+  (`unseenOrderCount` in `lib/orders.js`), `GET /api/dashboard` returns it as
+  `tenant.unseenOrders`, and `POST /api/dashboard?seen=1` calls `markOrdersSeen`
+  to move the watermark. `tenant.alertsByEmail` (`emailConfigured()`) tells the
+  UI whether email is even switched on, and `app.html` shows a "Email alerts
+  off" banner when it is not — so the app never implies a channel it does not
+  have.
+  - **The dashboard chimes, for free.** `app.html` polls its own `/api/dashboard`
+    every 15s (`startOrderWatch`/`refreshQuietly`); when `unseenOrders` grows it
+    plays `public/assets/order-chime.mp3` and shows a toast, then marks the
+    orders seen. It is a local file played by the browser — no Meta call, no
+    message, no AI request — so the alert costs nothing, which is the whole
+    point. The very first load stays silent (orders were already waiting), the
+    poll pauses while the tab is hidden, and the owner can mute it (🔔/🔕,
+    remembered in `localStorage.bb_sound`). A WebAudio beep is the fallback if
+    the file cannot play.
+- **A new shop is not born empty.** `lib/samples.js` seeds eight common flower
+  items on onboarding (`is_sample = true`), so the first customer message can
+  become an order. `api/products.js` returns `is_sample` and clears it on the
+  first owner edit, which is the cue the dashboard uses to drop the "sample
+  price" hint.
+- **Delivery-day reminder, once.** `ordersNeedingReminder(now)` finds delivery
+  orders due in the next 24h that have never been reminded; `markReminderSent`
+  stamps `reminder_sent_at` so a reminder never repeats. `customerWindowOpen`
+  checks whether an inbound message in the last 24h keeps WhatsApp's free-form
+  window open. When it is open the cron sends the customer a WhatsApp text;
+  when it is shut it emails the owner instead (`lib/notify.js`), because a
+  template message would cost money the zero-credit rule forbids. Both queries
+  cast the timestamp parameter (`$1::timestamptz`) — without it Postgres cannot
+  compare a bound parameter against `interval`.
 - Design system lives in `public/assets/app.css`; the landing page uses the
   Tailwind CDN with the BudsBox theme inlined in its `<head>`. The theme there
   defines `brand`, `brandDark`, `wa` and `waDark`; a class that uses a colour

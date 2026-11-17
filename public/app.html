@@ -75,6 +75,8 @@
       </div>
       <div class="row">
         <button id="waChip" class="pill hidden" type="button" style="border:none;cursor:pointer;font:inherit" title="WhatsApp connection"></button>
+        <button id="orderChip" class="pill hidden" type="button" style="border:none;cursor:pointer;font:inherit" title="Naye orders"></button>
+        <button id="soundBtn" class="pill" type="button" style="border:none;cursor:pointer;font:inherit" title="Order sound on">🔔</button>
         <span id="trialChip" class="pill trialing hidden"></span>
         <span id="usageChip" class="pill hidden" title="AI replies used this month"></span>
         <button id="payBtn" class="btn sm">Upgrade</button>
@@ -86,6 +88,7 @@
   <div class="wrap" style="padding:20px">
     <div id="banner"></div>
     <div id="waBanner"></div>
+    <div id="emailHint"></div>
 
     <div class="grid-4" style="margin-bottom:18px">
       <div class="stat"><div class="label">Orders</div><div class="value" id="sOrders">—</div></div>
@@ -370,6 +373,8 @@ $('logoutBtn').onclick = async () => {
 // ---- app shell -----------------------------------------------------------
 async function enterApp() {
   const data = await api('/api/dashboard');
+  const isFirstLoad = !state.tenant;
+  const prevUnseen = state.tenant ? state.tenant.unseenOrders : 0;
   state.tenant = data.tenant;
   $('authView').classList.add('hidden');
   $('appView').classList.remove('hidden');
@@ -378,7 +383,72 @@ async function enterApp() {
   renderSummary(data.summary);
   state.orders = data.orders;
   renderOrders();
+  renderSoundBtn();
   await Promise.all([loadConversations(), loadProducts(), loadWhatsApp(), loadSettings()]);
+
+  // A new order since the last look gets a chime — the owner should not have to
+  // stare at the screen. The very first load stays silent: those orders were
+  // already waiting, and a sound on login would only startle.
+  if (!isFirstLoad && (data.tenant.unseenOrders || 0) > prevUnseen) orderChime();
+
+  // The owner is looking at the dashboard now, so the "naya order" badge has
+  // done its job and the watermark moves forward.
+  if (data.tenant.unseenOrders) {
+    api('/api/dashboard?seen=1', { method: 'POST' }).catch(() => {});
+  }
+  renderEmailHint(data.tenant);
+  startOrderWatch();
+}
+
+// Polls the dashboard so a new order chimes within seconds, even if the owner
+// never touches Refresh. This is a plain GET against our own API — no Meta
+// call, no AI call, so it costs no credit. It pauses when the tab is hidden,
+// because a shopkeeper who has switched tabs is not watching the screen, and
+// resumes (with an immediate check) when they come back.
+let watchTimer = null;
+function startOrderWatch() {
+  if (watchTimer) return;
+  watchTimer = setInterval(() => {
+    if (document.hidden) return;
+    refreshQuietly();
+  }, 15000);
+}
+
+async function refreshQuietly() {
+  try {
+    const data = await api('/api/dashboard');
+    const prevUnseen = state.tenant ? state.tenant.unseenOrders : 0;
+    const grew = (data.tenant.unseenOrders || 0) > prevUnseen;
+    state.tenant = data.tenant;
+    state.orders = data.orders;
+    renderTenant(data.tenant);
+    renderSummary(data.summary);
+    renderOrders();
+    if (grew) {
+      orderChime();
+      toast(`🆕 ${data.tenant.unseenOrders} naya order`);
+      // The owner is at the screen and has just been told, so the badge has
+      // done its job — otherwise it would keep counting up while they watch.
+      api('/api/dashboard?seen=1', { method: 'POST' }).catch(() => {});
+      state.tenant.unseenOrders = 0;
+      renderOrderChip(state.tenant);
+    }
+  } catch { /* transient; the next tick tries again */ }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && state.tenant) refreshQuietly();
+});
+
+// Says plainly how a new order reaches the owner. Email alerts are the channel
+// that works when the dashboard is closed, so when they are off the app says so
+// instead of silently relying on someone refreshing a page.
+function renderEmailHint(tenant) {
+  const el = $('emailHint');
+  if (!el) return;
+  if (tenant.alertsByEmail) { el.classList.add('hidden'); return; }
+  el.className = 'banner warn';
+  el.innerHTML = `📧 <b>Email alerts off.</b> Naya order aane par owner ko email nahi jayega — sirf yahan dashboard me dikhega. Chalu karne ke liye <code>RESEND_API_KEY</code> set karein.`;
 }
 
 function renderTenant(tenant) {
@@ -401,8 +471,68 @@ function renderTenant(tenant) {
   }
   renderBanner(tenant);
   renderWaBanner(tenant.waAlert);
+  renderOrderChip(tenant);
   renderUsage();
 }
+
+// ---- order chime ---------------------------------------------------------
+// A chime when a new order lands. It is a local file played by the browser, so
+// it costs nothing: no API call, no message, no AI credit. The owner can mute
+// it, and the choice is remembered.
+let audioCtx = null;
+function orderChime() {
+  if (localStorage.getItem('bb_sound') === 'off') return;
+  try {
+    const el = new Audio('/assets/order-chime.mp3');
+    el.volume = 0.6;
+    const p = el.play();
+    if (p && p.catch) p.catch(() => {});
+    return;
+  } catch { /* fall through to the beep */ }
+  // If the browser blocks the file (rare), a WebAudio beep still alerts.
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.frequency.value = 880; g.gain.value = 0.08;
+    o.start(); o.stop(audioCtx.currentTime + 0.18);
+  } catch { /* nothing left to try */ }
+}
+
+function renderSoundBtn() {
+  const off = localStorage.getItem('bb_sound') === 'off';
+  const btn = $('soundBtn');
+  btn.textContent = off ? '🔕' : '🔔';
+  btn.title = off ? 'Order sound off' : 'Order sound on';
+  btn.classList.toggle('off', off);
+}
+
+$('soundBtn').onclick = () => {
+  const off = localStorage.getItem('bb_sound') === 'off';
+  localStorage.setItem('bb_sound', off ? 'on' : 'off');
+  renderSoundBtn();
+  toast(off ? 'Order sound chalu 🔔' : 'Order sound band 🔕');
+};
+
+// A new order is the whole point of the product, so it gets a chip the owner
+// cannot miss. It clears once the dashboard is opened, and when email alerts
+// are off it also says how to switch them on.
+function renderOrderChip(tenant) {
+  const chip = $('orderChip');
+  const n = tenant.unseenOrders || 0;
+  if (!n) { chip.classList.add('hidden'); return; }
+  chip.classList.remove('hidden');
+  chip.className = 'pill pending';
+  chip.textContent = `🆕 ${n} naya order`;
+}
+
+$('orderChip').onclick = () => {
+  document.querySelectorAll('.tab[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'orders'));
+  document.querySelectorAll('.tabpane').forEach((p) => p.classList.add('hidden'));
+  $('tab-orders').classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
 
 // The shop's WhatsApp token expires 60 days after it was connected. A dead
 // token is invisible on its own — messages arrive and the AI drafts, but every
@@ -649,7 +779,7 @@ function renderProducts() {
   if (!state.products.length) { body.innerHTML = '<tr><td colspan="4" class="empty">Catalog khaali hai. Right side se items add karo.</td></tr>'; return; }
   body.innerHTML = state.products.map((p) => `<tr>
     <td><b>${escapeHtml(p.name)}</b>${p.description ? `<div class="muted" style="font-size:11.5px">${escapeHtml(p.description)}</div>` : ''}</td>
-    <td><b>${rupees(p.price_cents)}</b></td>
+    <td><b>${rupees(p.price_cents)}</b>${p.is_sample ? '<div class="muted" style="font-size:11px">sample price</div>' : ''}</td>
     <td><span class="pill ${p.active ? 'active' : 'cancelled'}">${p.active ? 'active' : 'hidden'}</span></td>
     <td class="row" style="gap:6px">
       <button class="btn ghost sm" data-edit="${p.id}">Edit</button>

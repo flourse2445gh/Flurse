@@ -128,6 +128,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); backgrou
 .pill.pending, .pill.ordered, .pill.qr_pending { background: #fff3dc; color: #b57a10; }
 .pill.confirmed, .pill.replied { background: #e6f0ff; color: #0a63d0; }
 .pill.suspended, .pill.expired, .pill.cancelled { background: #ffe8e8; color: #c93030; }
+/* The sound toggle sits in the header with the other chips; muted reads as flat. */
+button.pill { cursor: pointer; font: inherit; border: none; }
+button.pill.off { opacity: .5; }
 
 /* ---------- stats ---------- */
 .stat { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 16px; box-shadow: var(--shadow-card); }

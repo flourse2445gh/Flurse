@@ -31,8 +31,8 @@ function cookieFrom(res) {
   return cookie ? cookie.split(';')[0] : null;
 }
 
-async function api(path, { method = 'GET', body, cookie } = {}) {
-  const headers = {};
+async function api(path, { method = 'GET', body, cookie, headers: extra = {} } = {}) {
+  const headers = { ...extra };
   if (body) headers['Content-Type'] = 'application/json';
   if (cookie) headers.Cookie = cookie;
   const res = await fetch(`${BASE}${path}`, {
@@ -536,7 +536,29 @@ test('the catalog is tenant-scoped', async () => {
   });
   await api('/api/products', { method: 'POST', body: { name: 'Only Mine', price: 100 }, cookie: a.cookie });
   const other = await api('/api/products', { cookie: b.cookie });
-  assert.equal(other.body.products.length, 0, 'a shop must not see another shop catalog');
+  assert.ok(
+    !other.body.products.some((p) => p.name === 'Only Mine'),
+    'a shop must not see another shop catalog',
+  );
+});
+
+test('a new shop starts with a starter catalog it can order from', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@rival.cafe', password: 'supersecret456' },
+  });
+  const { body } = await api('/api/products', { cookie: login.cookie });
+  assert.ok(body.products.length >= 5, 'the shop has items on day one');
+  assert.ok(body.products.every((p) => p.is_sample === true), 'the seeded items are marked as samples');
+
+  // Editing an item makes it the owner's own, so the "sample price" nudge goes.
+  const item = body.products[0];
+  const saved = await api('/api/products', {
+    method: 'POST',
+    body: { id: item.id, name: item.name, price: item.price_cents / 100 },
+    cookie: login.cookie,
+  });
+  assert.equal(saved.body.product.is_sample, false, 'editing clears the sample flag');
 });
 
 test('a shop connects and disconnects its WhatsApp number', async () => {
@@ -2272,4 +2294,160 @@ test('a greeting never spends the AI allowance', async () => {
   assert.equal(result.replySource, 'greeting', 'a hello is answered with no model');
   const { rows } = await query("SELECT ai_reply FROM messages WHERE wa_message_id = 'wam_hi_1'");
   assert.equal(rows[0].ai_reply, false, 'a greeting is free');
+});
+
+// -- owner alerts ----------------------------------------------------------
+
+test('a new order emails the shop owner, once, with what they need to act', async () => {
+  await query("DELETE FROM orders WHERE tenant_id = (SELECT id FROM tenants WHERE slug = 'test-cafe')");
+  process.env.RESEND_API_KEY = 'test-resend-key';
+
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('api.resend.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ id: 'email-1' }), { status: 200 });
+    }
+    if (String(url).includes('graph.facebook.com')) {
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.OUT' }] }), { status: 200 });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const payload = inboundPayload({
+      phoneNumberId: 'PHONE1',
+      from: '15550003333',
+      text: '2 latte bhej do, kal 6 baje, 12 Gandhi Road',
+      id: 'wamid.ALERT1',
+    });
+    const { raw, sig } = signedWebhook(payload);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+      body: raw,
+    });
+    // The email is fired without awaiting the reply path, so let it settle.
+    await new Promise((r) => setTimeout(r, 50));
+
+    assert.equal(sent.length, 1, 'the owner is emailed exactly once for a new order');
+    assert.equal(sent[0].to[0], 'owner@test.cafe');
+    assert.match(sent[0].subject, /Naya order/i);
+    assert.match(sent[0].text, /Latte/);
+
+    // A follow-up that only adds details must not email again.
+    const more = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550003333', text: 'aur ek croissant', id: 'wamid.ALERT2',
+    });
+    const sig2 = signedWebhook(more);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig2.sig },
+      body: sig2.raw,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(sent.length, 2, 'the second order also emails, but nothing double-sends');
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.RESEND_API_KEY;
+  }
+});
+
+test('the dashboard counts unseen orders and clears them once seen', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  // Pretend the owner has never opened the dashboard.
+  await query("UPDATE tenants SET orders_seen_at = NULL WHERE slug = 'test-cafe'");
+  const first = await api('/api/dashboard', { cookie: login.cookie });
+  assert.ok(first.body.tenant.unseenOrders >= 1, 'unseen orders are counted');
+  assert.equal(typeof first.body.tenant.alertsByEmail, 'boolean');
+
+  const seen = await api('/api/dashboard?seen=1', { method: 'POST', cookie: login.cookie });
+  assert.equal(seen.status, 200);
+
+  const after = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(after.body.tenant.unseenOrders, 0, 'opening the dashboard clears the badge');
+});
+
+test('an order due tomorrow gets one WhatsApp reminder, and never twice', async () => {
+  await query("UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'");
+  // Only the order this test owns is due; silence any left over from earlier tests.
+  await query("UPDATE orders SET reminder_sent_at = now() WHERE wa_message_id <> 'wamid.ALERT1'");
+  await query("UPDATE orders SET reminder_sent_at = NULL, delivery_at = now() + interval '10 hours', fulfilment = 'delivery' WHERE wa_message_id = 'wamid.ALERT1'");
+  // An inbound message just now keeps the 24-hour window open.
+  await query(
+    `INSERT INTO messages (tenant_id, customer_id, direction, body)
+     SELECT o.tenant_id, o.customer_id, 'inbound', 'haan theek hai'
+       FROM orders o WHERE o.wa_message_id = 'wamid.ALERT1'`,
+  );
+
+  const sends = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sends.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.OUT' }] }), { status: 200 });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const first = await api('/api/cron/trial', { method: 'GET', headers: { Authorization: 'Bearer test-cron-secret' } });
+    assert.equal(first.status, 200);
+    assert.ok(first.body.reminders.sent >= 1, 'the reminder goes out while the window is open');
+    assert.ok(sends.some((m) => /Reminder/.test(m.text?.body || '')), 'a reminder message was sent');
+
+    const again = await api('/api/cron/trial', { method: 'GET', headers: { Authorization: 'Bearer test-cron-secret' } });
+    assert.equal(again.body.reminders.sent, 0, 'a reminder is not sent twice');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a reminder whose WhatsApp window is closed is emailed to the owner instead', async () => {
+  process.env.RESEND_API_KEY = 'test-resend-key';
+  await query("UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'");
+  await query("UPDATE orders SET reminder_sent_at = now() WHERE wa_message_id <> 'wamid.ALERT1'");
+  await query("UPDATE orders SET reminder_sent_at = NULL, delivery_at = now() + interval '10 hours', fulfilment = 'delivery' WHERE wa_message_id = 'wamid.ALERT1'");
+  // No inbound message in the last 24 hours, so the window is shut.
+  await query(
+    `DELETE FROM messages WHERE tenant_id = (SELECT id FROM tenants WHERE slug = 'test-cafe')`,
+  );
+
+  const emails = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('api.resend.com')) {
+      emails.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ id: 'email-2' }), { status: 200 });
+    }
+    if (String(url).includes('graph.facebook.com')) {
+      throw new Error('must not send a free-form message outside the window');
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const res = await api('/api/cron/trial', { method: 'GET', headers: { Authorization: 'Bearer test-cron-secret' } });
+    assert.equal(res.body.reminders.emailed, 1, 'the owner is emailed instead');
+    assert.equal(emails.length, 1);
+    assert.match(emails[0].subject, /delivery/i);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.RESEND_API_KEY;
+  }
+});
+
+test('an order with no email key still works, and the dashboard says alerts are off', async () => {
+  delete process.env.RESEND_API_KEY;
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const { body } = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(body.tenant.alertsByEmail, false, 'the app knows email alerts are off');
 });

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { withTransaction } from '../lib/db.js';
 import { hashPassword, createSession, sessionCookie } from '../lib/auth.js';
 import { trialEndDate, slugify, daysLeft } from '../lib/trial.js';
+import { seedSampleCatalog } from '../lib/samples.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -56,7 +57,11 @@ export default handler(async (req, res) => {
       [tenant.id, email, hashPassword(password)],
     );
 
-    return { tenant, userId: userRows[0].id };
+    // Give the shop a working catalog on day one, so the AI can turn the very
+    // first customer message into an order instead of asking "which flower?".
+    const sampleCount = await seedSampleCatalog(client, tenant.id);
+
+    return { tenant, userId: userRows[0].id, sampleCount };
   });
 
   const { token, expiresAt } = await createSession(result.userId, result.tenant.id);

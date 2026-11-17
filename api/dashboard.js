@@ -4,9 +4,12 @@ import {
   listOrders,
   updateOrderStatus,
   setOrderPayment,
+  unseenOrderCount,
+  markOrdersSeen,
 } from '../lib/orders.js';
 import { daysLeft } from '../lib/trial.js';
 import { connectionAlert } from '../lib/wahealth.js';
+import { emailConfigured } from '../lib/notify.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 const VALID_STATUSES = ['pending', 'confirmed', 'fulfilled', 'cancelled'];
@@ -19,9 +22,10 @@ export default handler(async (req, res) => {
   const session = await requireSession(req);
 
   if (req.method === 'GET') {
-    const [summary, orders] = await Promise.all([
+    const [summary, orders, unseen] = await Promise.all([
       getDashboardSummary(session.tenant_id),
       listOrders(session.tenant_id, 25),
+      unseenOrderCount(session.tenant_id),
     ]);
 
     json(res, 200, {
@@ -35,6 +39,11 @@ export default handler(async (req, res) => {
         // Whether the WhatsApp connection is healthy, decided in one place so
         // the banner and the WhatsApp tab cannot disagree.
         waAlert: connectionAlert(session),
+        // Orders that landed since the owner last opened the dashboard, and
+        // whether the owner-alert email is even switched on, so the app can
+        // tell the truth about how a new order reaches them.
+        unseenOrders: unseen,
+        alertsByEmail: emailConfigured(),
       },
       summary,
       orders,
@@ -46,6 +55,14 @@ export default handler(async (req, res) => {
   assertTenantWritable({ status: session.status });
 
   const params = new URL(req.url, 'http://localhost').searchParams;
+
+  // The owner has opened the dashboard, so the "naya order" badge clears.
+  if (params.get('seen')) {
+    await markOrdersSeen(session.tenant_id);
+    json(res, 200, { ok: true });
+    return;
+  }
+
   const orderId = params.get('order_id');
   if (!orderId) throw new HttpError(400, 'order_id is required');
 
