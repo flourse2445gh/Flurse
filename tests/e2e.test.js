@@ -446,6 +446,31 @@ test('upgrading reactivates a suspended tenant', async () => {
   assert.equal(read.body.tenant.status, 'active');
 });
 
+test('the landing page savings figures match the plans it sells', async () => {
+  // The cards carry a helper-vs-plan saving, computed from the cheapest helper
+  // (₹8,000/mahina). The figure is arithmetic, not a claim, so it must move
+  // with the prices — a stale number here would be a lie on the page.
+  const HELPER = 8000;
+  const inr = (n) => `₹${n.toLocaleString('en-IN')}`;
+  const html = await readFile(join(root, 'public', 'index.html'), 'utf8');
+  const tiers = [
+    { mo: 999, yr: 9990 },   // Starter
+    { mo: 1999, yr: 19990 }, // Growth
+    { mo: 3999, yr: 39990 }, // Pro
+  ];
+  for (const t of tiers) {
+    const moLine = `Sabse sasta helper (₹8,000) se bhi <b>${inr(HELPER - t.mo)}</b>/mahina bachat`;
+    const yrLine = `Sabse sasta helper (₹8,000) se bhi <b>${inr(HELPER * 12 - t.yr)}</b>/saal bachat`;
+    assert.ok(html.includes(moLine), `monthly saving shown: ${moLine}`);
+    assert.ok(html.includes(yrLine), `yearly saving shown: ${yrLine}`);
+  }
+  // The per-month line on a yearly card is the yearly price spread over the
+  // twelve months it covers, e.g. ₹9,990/12 = ₹833.
+  for (const t of tiers) {
+    assert.ok(html.includes(`Mahine ka sirf <b>${inr(Math.round(t.yr / 12))}</b>`), `per-month for ${inr(t.yr)}`);
+  }
+});
+
 test('the admin view is secret-gated and reports cross-tenant stats', async () => {
   const denied = await api('/api/admin');
   assert.equal(denied.status, 401);

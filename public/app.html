@@ -298,9 +298,12 @@
     </div>
     <div style="padding:20px">
       <p class="muted" id="payShop">—</p>
-      <div class="inline-flex bg-ink/5 rounded-full p-1 mb-3">
-        <button type="button" id="plMo" class="px-4 py-1.5 rounded-full font-bold text-[12px] bg-ink text-white">Monthly</button>
-        <button type="button" id="plYr" class="px-4 py-1.5 rounded-full font-bold text-[12px] text-ink/60">Yearly · 2 mahine free</button>
+      <p class="value-note" style="margin:0 0 12px">
+        Ek helper ₹8,000–₹18,000/mahina leta hai. BudsBox wahi kaam ₹999 se — 24×7, ek message bhi miss nahi.
+      </p>
+      <div class="period" style="margin-bottom:14px">
+        <button type="button" id="plMo" class="on">Monthly</button>
+        <button type="button" id="plYr">Yearly · 2 mahine free</button>
       </div>
       <div class="stack" style="margin-bottom:16px" id="plList"></div>
       <div class="stack">
@@ -941,6 +944,23 @@ function planBlurb(p) {
   return `${p.aiReplies.toLocaleString('en-IN')} AI replies/mahine · mahine ka ₹${perMonth.toLocaleString('en-IN')} · ₹${saving.toLocaleString('en-IN')} bachat`;
 }
 
+// What the same job costs a shop without BudsBox: the cheapest helper is
+// ₹8,000 a month, so that is the figure used. The saving is that minus the
+// plan's monthly rate — a conservative floor, never an inflated ceiling.
+const HELPER_MONTH = 8000;
+
+function planValue(p) {
+  // Yearly saving is the helper's whole year minus the yearly price, so it
+  // matches the landing page figure rather than a per-month round-up.
+  const saving = p.billing === 'yearly'
+    ? HELPER_MONTH * 12 - p.priceCents / 100
+    : HELPER_MONTH - p.priceCents / 100;
+  const inrFmt = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+  return p.billing === 'yearly'
+    ? `Helper se ${inrFmt(saving)}/saal bachat`
+    : `Helper se ${inrFmt(saving)}/mahina bachat`;
+}
+
 function renderPlanList() {
   const list = $('plList');
   const chosen = selectedPlan();
@@ -953,7 +973,8 @@ function renderPlanList() {
     <label class="row" style="border:${p.id === checkedId ? '2px solid rgba(37,211,102,.5);background:rgba(37,211,102,.06)' : '1px solid var(--line)'};border-radius:12px;padding:12px 14px;cursor:pointer;align-items:flex-start">
       <input type="radio" name="pl" value="${p.id}" ${p.id === checkedId ? 'checked' : ''} style="width:auto;margin-top:3px">
       <span><b>${escapeHtml(p.name)}</b> · ${inr(p.priceCents)}${p.billing === 'yearly' ? '/saal' : '/mo'}
-        <span class="muted" style="font-size:11px;display:block">${escapeHtml(planBlurb(p))}</span></span>
+        <span class="muted" style="font-size:11px;display:block">${escapeHtml(planBlurb(p))}</span>
+        <span style="font-size:11px;font-weight:700;color:#14924a;display:block">${escapeHtml(planValue(p))}</span></span>
     </label>`).join('');
 
   list.querySelectorAll('input[name="pl"]').forEach((el) => {
@@ -977,8 +998,8 @@ function syncPayButtons() {
 function showPeriod(next) {
   period = next;
   const yr = next === 'yearly';
-  $('plMo').className = `px-4 py-1.5 rounded-full font-bold text-[12px] ${yr ? 'text-ink/60' : 'bg-ink text-white'}`;
-  $('plYr').className = `px-4 py-1.5 rounded-full font-bold text-[12px] ${yr ? 'bg-ink text-white' : 'text-ink/60'}`;
+  $('plMo').classList.toggle('on', !yr);
+  $('plYr').classList.toggle('on', yr);
   renderPlanList();
 }
 $('plMo').onclick = () => showPeriod('monthly');

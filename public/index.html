@@ -158,8 +158,8 @@
         <p class="mt-1 text-[12px] text-ink/50">Missed orders</p>
       </div>
       <div class="reveal">
-        <p class="text-3xl font-extrabold text-ink">₹999</p>
-        <p class="mt-1 text-[12px] text-ink/50">Per month, flat</p>
+        <p class="text-3xl font-extrabold text-ink">₹7,001</p>
+        <p class="mt-1 text-[12px] text-ink/50">Mahine ki bachat vs helper</p>
       </div>
       <div class="reveal">
         <p class="text-3xl font-extrabold text-brandDark">14 din</p>
@@ -307,7 +307,7 @@
     <div class="max-w-6xl mx-auto px-5 py-16">
       <div class="text-center reveal">
         <h2 class="text-3xl sm:text-4xl font-extrabold">Simple <span class="text-brand">pricing</span></h2>
-        <p class="mt-3 text-ink/55 text-[15px]">Pehle 14 din free. Uske baad sirf ₹999/month se — ek bouquet ke price se bhi kam.</p>
+        <p class="mt-3 text-ink/55 text-[15px]">Pehle 14 din free. Uske baad sirf ₹999/mahina — ek bouquet se bhi sasta, ek helper se 8 guna sasta.</p>
       </div>
 
       <!-- Monthly / Yearly toggle: one set of plans, two ways to pay. -->
@@ -322,6 +322,19 @@
         </div>
       </div>
 
+      <!-- Value anchor: the cheapest helper, so the comparison can only
+           under-sell the saving. -->
+      <div class="mt-8 max-w-3xl mx-auto reveal">
+        <div class="bg-wa/8 border-2 border-wa/25 rounded-2xl px-5 py-4 text-center">
+          <p class="text-[13.5px] text-ink/70">
+            Ek helper ₹8,000–₹18,000/mahina leta hai — aur wo bhi sirf 8 ghante, chhutti aur bimaari ke saath.
+          </p>
+          <p class="mt-1.5 text-[13.5px] font-bold text-ink">
+            BudsBox wahi kaam <span class="text-waDark">₹999 se</span> karta hai — 24×7, ek message bhi miss nahi.
+          </p>
+        </div>
+      </div>
+
       <div class="mt-8 grid sm:grid-cols-3 gap-5 max-w-5xl mx-auto">
         <!-- Starter -->
         <div class="bg-white rounded-3xl p-7 border-2 border-ink/5 reveal flex flex-col">
@@ -332,14 +345,19 @@
           <p class="hidden text-[12px] font-semibold text-waDark bg-wa/10 rounded-lg px-2.5 py-1 mt-2" data-yr-only>
             Mahine ka sirf <b>₹833</b> · <b>₹1,998</b> bachat
           </p>
-          <p class="mt-4 text-[13px] font-semibold text-brandDark bg-brand/8 rounded-lg px-3 py-2">
+          <p class="mt-2 text-[12px] font-bold text-waDark bg-wa/10 rounded-lg px-2.5 py-1.5" data-save
+             data-save-mo="Sabse sasta helper (₹8,000) se bhi <b>₹7,001</b>/mahina bachat"
+             data-save-yr="Sabse sasta helper (₹8,000) se bhi <b>₹86,010</b>/saal bachat">Sabse sasta helper (₹8,000) se bhi <b>₹7,001</b>/mahina bachat</p>
+          <p class="mt-3 text-[13px] font-semibold text-brandDark bg-brand/8 rounded-lg px-3 py-2">
             Har mahine <b>1,500</b> AI replies
           </p>
           <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65 flex-1">
             <li class="flex gap-2"><span class="text-wa">✓</span> Unlimited customers + orders</li>
             <li class="flex gap-2"><span class="text-wa">✓</span> AI order parsing + auto reply</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Hindi, Hinglish, English — customer ki bhasha me</li>
             <li class="flex gap-2"><span class="text-wa">✓</span> Apna WhatsApp number connect</li>
             <li class="flex gap-2"><span class="text-wa">✓</span> Catalog + chat inbox + dashboard</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> UPI QR + payment link — paise pehle, delivery baad me</li>
           </ul>
           <a href="/app?start=1"
                   class="mt-6 w-full block text-center bg-ink/5 hover:bg-ink/10 font-bold py-3 rounded-xl transition">
@@ -361,13 +379,17 @@
             <p class="hidden text-[12px] font-semibold text-white bg-wa/25 rounded-lg px-2.5 py-1 mt-2" data-yr-only>
               Mahine ka sirf <b>₹1,666</b> · <b>₹3,998</b> bachat
             </p>
-            <p class="mt-4 text-[13px] font-semibold text-brand bg-brand/15 rounded-lg px-3 py-2">
+            <p class="mt-2 text-[12px] font-bold text-white bg-wa/25 rounded-lg px-2.5 py-1.5" data-save
+               data-save-mo="Sabse sasta helper (₹8,000) se bhi <b>₹6,001</b>/mahina bachat"
+               data-save-yr="Sabse sasta helper (₹8,000) se bhi <b>₹76,010</b>/saal bachat">Sabse sasta helper (₹8,000) se bhi <b>₹6,001</b>/mahina bachat</p>
+            <p class="mt-3 text-[13px] font-semibold text-brand bg-brand/15 rounded-lg px-3 py-2">
               Har mahine <b>4,000</b> AI replies
             </p>
             <ul class="mt-5 space-y-2.5 text-[13px] text-white/70 flex-1">
               <li class="flex gap-2"><span class="text-wa">✓</span> Sab kuch Starter wala</li>
               <li class="flex gap-2"><span class="text-wa">✓</span> 4,000 AI replies — 2.6× Starter</li>
               <li class="flex gap-2"><span class="text-wa">✓</span> Auto-pay — ek baar approve, phir apne aap</li>
+              <li class="flex gap-2"><span class="text-wa">✓</span> Roz ke orders ke liye — busy din bhi sambhalta hai</li>
               <li class="flex gap-2"><span class="text-wa">✓</span> Priority support</li>
             </ul>
             <a href="/app?start=1"
@@ -386,13 +408,17 @@
           <p class="hidden text-[12px] font-semibold text-waDark bg-wa/10 rounded-lg px-2.5 py-1 mt-2" data-yr-only>
             Mahine ka sirf <b>₹3,333</b> · <b>₹7,998</b> bachat
           </p>
-          <p class="mt-4 text-[13px] font-semibold text-brandDark bg-brand/8 rounded-lg px-3 py-2">
+          <p class="mt-2 text-[12px] font-bold text-waDark bg-wa/10 rounded-lg px-2.5 py-1.5" data-save
+             data-save-mo="Sabse sasta helper (₹8,000) se bhi <b>₹4,001</b>/mahina bachat"
+             data-save-yr="Sabse sasta helper (₹8,000) se bhi <b>₹56,010</b>/saal bachat">Sabse sasta helper (₹8,000) se bhi <b>₹4,001</b>/mahina bachat</p>
+          <p class="mt-3 text-[13px] font-semibold text-brandDark bg-brand/8 rounded-lg px-3 py-2">
             Har mahine <b>10,000</b> AI replies
           </p>
           <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65 flex-1">
             <li class="flex gap-2"><span class="text-wa">✓</span> Sab kuch Growth wala</li>
             <li class="flex gap-2"><span class="text-wa">✓</span> 10,000 AI replies — 6.7× Starter</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> Festive season ready</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Festival aur shaadi season — rush bhi handle</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Bade catalog ke liye — hazaron items</li>
             <li class="flex gap-2"><span class="text-wa">✓</span> Priority support</li>
           </ul>
           <a href="/app?start=1"
@@ -402,7 +428,10 @@
         </div>
       </div>
 
-      <p class="mt-6 text-center text-[12px] text-ink/45 max-w-2xl mx-auto">
+      <p class="mt-6 text-center text-[12.5px] font-semibold text-ink/60">
+        Sab kuch included — koi setup fee nahi, koi hidden charge nahi, koi per-order commission nahi.
+      </p>
+      <p class="mt-2 text-center text-[12px] text-ink/45 max-w-2xl mx-auto">
         Har plan me AI replies ki apni limit hai. Limit khatam hone ke baad bhi aapka number kabhi chup nahi hota —
         customer ko reply milta rehta hai, bas AI ki jagah smart matching chalti hai. Yearly lene par 2 mahine muft.
       </p>
@@ -448,6 +477,19 @@
         </summary>
         <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
           Har order dashboard me dikhta hai — aap Confirm karo ya Cancel. Catalog saaf rakho to matching best chalti hai.
+        </p>
+      </details>
+
+      <details class="faq bg-white rounded-2xl shadow-card border border-ink/5 reveal">
+        <summary class="px-5 py-4 flex items-center justify-between font-bold text-[14.5px]">
+          Itna sasta kaise? Koi catch to nahi?
+          <span class="chev text-ink/40">▾</span>
+        </summary>
+        <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
+          Koi catch nahi. Ek helper ₹8,000–₹18,000/mahina leta hai — aur wo bhi sirf 8 ghante, chhutti aur bimaari
+          ke saath. BudsBox 24×7 chalta hai, ek message bhi miss nahi karta. Sabse sasta helper (₹8,000) maan lo,
+          to bhi ₹4,001 se ₹7,001/mahina bach jate hain. Koi setup fee nahi, koi hidden charge nahi, koi
+          per-order commission nahi.
         </p>
       </details>
 
@@ -525,6 +567,11 @@
     // The "per month, and how much you save" line only makes sense on yearly.
     document.querySelectorAll('[data-yr-only]').forEach((el) => {
       el.classList.toggle('hidden', !yearly);
+    });
+    // What a helper would cost, against what this plan costs — the value line
+    // swaps between its monthly and yearly wording with the toggle.
+    document.querySelectorAll('[data-save]').forEach((el) => {
+      el.innerHTML = yearly ? el.dataset.saveYr : el.dataset.saveMo;
     });
     moBtn.className = `px-6 py-2.5 rounded-full font-bold text-[14px] transition ${yearly ? 'text-ink/60' : 'bg-ink text-white'}`;
     yrBtn.className = `px-6 py-2.5 rounded-full font-bold text-[14px] transition ${yearly ? 'bg-ink text-white' : 'text-ink/60'}`;
