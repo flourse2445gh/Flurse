@@ -87,6 +87,7 @@
 
   <div class="wrap" style="padding:20px">
     <div id="banner"></div>
+    <div id="dueBanner"></div>
     <div id="waBanner"></div>
 
     <div class="grid-4" style="margin-bottom:18px">
@@ -457,6 +458,7 @@ function renderTenant(tenant) {
     chip.classList.remove('hidden');
   }
   renderBanner(tenant);
+  renderDueBanner(tenant);
   renderWaBanner(tenant.waAlert);
   renderOrderChip(tenant);
   renderUsage();
@@ -605,6 +607,23 @@ function renderBanner(tenant) {
     el.className = 'banner hidden';
     el.innerHTML = '';
   }
+}
+
+// Deliveries due tomorrow, stated on screen. WhatsApp can only be messaged
+// inside the 24-hour window and email needs a key, so this banner is the one
+// reminder that always reaches the owner — no account, no key, nothing to set up.
+function renderDueBanner(tenant) {
+  const el = $('dueBanner');
+  const due = tenant.dueTomorrow || [];
+  if (!due.length) { el.className = 'banner hidden'; el.innerHTML = ''; return; }
+  const n = due.length;
+  const names = due.slice(0, 3).map((o) => escapeHtml(o.recipient || 'Customer')).join(', ');
+  const more = n > 3 ? ` +${n - 3} aur` : '';
+  const unpaid = due.filter((o) => !o.paid).length;
+  el.className = 'banner warn';
+  el.innerHTML = `📦 <b>Kal ${n} delivery${n > 1 ? 'ies' : ''} hain.</b> `
+    + `${names}${more}.`
+    + (unpaid ? ` <b>${unpaid} ka payment abhi baaki hai.</b>` : ' Sab paid hai.');
 }
 
 function renderSummary(s) {

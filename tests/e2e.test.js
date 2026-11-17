@@ -2441,6 +2441,32 @@ test('a reminder whose WhatsApp window is closed is emailed to the owner instead
   }
 });
 
+test('the dashboard shows deliveries due tomorrow, even with no email key', async () => {
+  // The banner is the reminder that survives when WhatsApp's window is shut and
+  // no mail key is set, so it must come straight from the dashboard with nothing
+  // configured at all.
+  delete process.env.RESEND_API_KEY;
+  const T = "(SELECT id FROM tenants WHERE slug = 'test-cafe')";
+  await query("UPDATE tenants SET status = 'active' WHERE slug = 'test-cafe'");
+  // Park every other order far in the future as a pickup, so only the one order
+  // this test owns can match the "delivery due tomorrow" filter.
+  await query(`UPDATE orders SET delivery_at = now() + interval '5 days', fulfilment = 'pickup' WHERE tenant_id = ${T}`);
+  await query(
+    `UPDATE orders SET delivery_at = now() + interval '1 day', fulfilment = 'delivery',
+            status = 'pending', recipient_name = 'Anita ji'
+      WHERE wa_message_id = 'wamid.ALERT1'`,
+  );
+
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const { body } = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(body.tenant.dueTomorrow.length, 1, 'the one delivery due tomorrow is listed');
+  assert.equal(body.tenant.dueTomorrow[0].recipient, 'Anita ji');
+  assert.equal(typeof body.tenant.dueTomorrow[0].paid, 'boolean');
+});
+
 test('with no email key the dashboard still works, so the chime needs no signup', async () => {
   // The owner alert is the dashboard badge + chime, which needs no account, no
   // key and no email. Email is an optional extra; without a key nothing breaks.

@@ -96,7 +96,9 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
 - **Nayi shop ka starter catalog** — signup par 8 common flower items seed hote
   hain (`is_sample` flag), taaki pehla message hi order ban sake
 - **Delivery-day reminder** — kal delivery wale order ko ek reminder; WhatsApp
-  24-ghante window khuli ho to customer ko, warna owner ko email
+  24-ghante window khuli ho to customer ko, aur **dashboard banner** par owner ko
+  hamesha dikhta hai (email ke bina bhi, koi signup nahi); email optional
+  fallback hai
 - Trial cron: expired trial -> auto suspend + token revoke, token watch, aur
   delivery reminders (daily 03:00 IST)
 

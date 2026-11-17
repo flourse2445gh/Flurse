@@ -26,7 +26,8 @@ Vercel marketplace.
 - A new shop starts with a starter flower catalog, so the first customer message
   can become an order instead of "which flower?"
 - A delivery due tomorrow gets one reminder to the customer (WhatsApp, while the
-  24-hour window is open) or, failing that, an email to the owner
+  24-hour window is open) and is always shown as a banner on the dashboard, so
+  the owner sees it with no email key and no signup
 - Money before flowers: the shop's own UPI QR is sent on "payment kaise karu?"
   without spending an AI call, and an order is not fulfilled until it is marked
   paid

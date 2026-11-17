@@ -6,6 +6,7 @@ import {
   setOrderPayment,
   unseenOrderCount,
   markOrdersSeen,
+  ordersDueTomorrow,
 } from '../lib/orders.js';
 import { daysLeft } from '../lib/trial.js';
 import { connectionAlert } from '../lib/wahealth.js';
@@ -21,10 +22,11 @@ export default handler(async (req, res) => {
   const session = await requireSession(req);
 
   if (req.method === 'GET') {
-    const [summary, orders, unseen] = await Promise.all([
+    const [summary, orders, unseen, dueTomorrow] = await Promise.all([
       getDashboardSummary(session.tenant_id),
       listOrders(session.tenant_id, 25),
       unseenOrderCount(session.tenant_id),
+      ordersDueTomorrow(session.tenant_id),
     ]);
 
     json(res, 200, {
@@ -41,6 +43,9 @@ export default handler(async (req, res) => {
         // Orders that landed since the owner last opened the dashboard, so the
         // app can chime and badge a new one the moment it arrives.
         unseenOrders: unseen,
+        // Deliveries due tomorrow, so the owner is told on screen even when no
+        // WhatsApp window is open and no email key is set.
+        dueTomorrow,
       },
       summary,
       orders,

@@ -279,6 +279,15 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
     best-effort, after the reply is queued, so an email outage cannot break a
     reply. Without a key the email is simply skipped and nothing on screen nags
     the owner about it — the badge and chime are the product.
+  - **A delivery due tomorrow is shown on screen, not only messaged.**
+    `ordersDueTomorrow` (IST calendar day) feeds `tenant.dueTomorrow` on
+    `GET /api/dashboard`, and `renderDueBanner` in `app.html` lists it with the
+    unpaid count. This matters because the two push channels both have holes: a
+    free-form WhatsApp message is rejected outside the 24-hour window, and the
+    email fallback needs `RESEND_API_KEY`. The banner needs neither — no
+    account, no key, nothing to configure — so a reminder is never silently
+    lost to a log line. It is a view of live data, not a one-shot, so it keeps
+    showing until the order is delivered or its date moves.
 - **A new shop is not born empty.** `lib/samples.js` seeds eight common flower
   items on onboarding (`is_sample = true`), so the first customer message can
   become an order. `api/products.js` returns `is_sample` and clears it on the
