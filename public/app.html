@@ -283,6 +283,7 @@
             <p class="muted" style="margin:8px 0 0;font-size:11.5px" id="waEsNote">
               Secure Meta popup — aapka token kahin copy nahi karna padega.
             </p>
+            <div class="error" id="waEsError" style="margin-top:10px;line-height:1.5"></div>
           </div>
 
           <details id="waManual" class="hidden">
@@ -1352,7 +1353,7 @@ $('waCopyVerify').onclick = () => { navigator.clipboard.writeText($('waVerify').
 // Meta returns the ids of the assets the owner just picked in a window message,
 // and the exchangeable code in the FB.login callback. Both are collected here
 // and posted to the server together, because the code lives only 30 seconds.
-let esState = { config: null, ids: null, cancelled: false };
+let esState = { config: null, ids: null, cancelled: false, event: null, tries: 0 };
 
 function setupEmbeddedSignup(config) {
   esState.config = config;
@@ -1382,21 +1383,25 @@ window.addEventListener('message', (event) => {
   try { data = JSON.parse(event.data); } catch { return; }
   if (data.type !== 'WA_EMBEDDED_SIGNUP') return;
   if (data.event === 'CANCEL') { esState.ids = null; esState.cancelled = true; return; }
+  esState.event = data.event || null;
   esState.ids = data.data || null;
 });
 
 async function launchEmbeddedSignup() {
   if (!window.FB) { toast('Facebook SDK load nahi hua — dobara koshish karo'); return; }
   esState.ids = null;
+  esState.event = null;
   esState.cancelled = false;
   const note = $('waEsNote');
+  const errEl = $('waEsError');
+  errEl.textContent = '';
   const prev = note.textContent;
   note.textContent = 'Facebook popup khul raha hai…';
   try {
     const code = await new Promise((resolve, reject) => {
       FB.login((response) => {
         if (response.authResponse && response.authResponse.code) resolve(response.authResponse.code);
-        else reject(new Error(esState.cancelled ? 'Aapne connect karna band kar diya' : 'Signup poora nahi hua'));
+        else reject(new Error(esState.cancelled ? 'Aapne connect karna band kar diya.' : 'Signup poora nahi hua.'));
       }, {
         config_id: esState.config.configId,
         response_type: 'code',
@@ -1408,7 +1413,9 @@ async function launchEmbeddedSignup() {
     note.textContent = prev;
   } catch (err) {
     note.textContent = prev;
-    toast(err.message);
+    // The toast vanishes in under three seconds, so a message the owner must
+    // read and act on stays on the page until the next attempt.
+    errEl.textContent = err.message;
   }
 }
 
@@ -1416,9 +1423,19 @@ async function finishEmbeddedSignup(code) {
   const ids = esState.ids || {};
   const phoneNumberId = ids.phone_number_id || ids.phoneNumberId;
   if (!phoneNumberId) {
-    throw new Error(esState.cancelled
-      ? 'Aapne connect karna band kar diya'
-      : 'Meta ne number nahi diya — popup me number select karke Finish dabao. Baar baar ho raha ho to business portfolio verify karna padega.');
+    if (esState.cancelled) throw new Error('Aapne connect karna band kar diya.');
+    esState.tries += 1;
+    // Meta sends FINISH_ONLY_WABA when the owner finished without adding a
+    // number. Lead with the fix they can act on; only mention portfolio
+    // verification once a retry has failed too, since that is a Meta-side step
+    // and naming it on the first try would send them down the wrong path.
+    const base = esState.event === 'FINISH_ONLY_WABA'
+      ? 'Aapke Facebook business account me abhi koi WhatsApp number add nahi hua. Popup me apna number add karke Finish dabao.'
+      : 'Number select karke Finish dabana reh gaya. "Connect with Facebook" dobara dabao, apna shop ka number chuno, aur aakhir me Finish dabao.';
+    const retry = esState.tries >= 2
+      ? ' Phir bhi number na aaye to Meta me apna business portfolio verify karwana padega — tab tak number add nahi hota.'
+      : '';
+    throw new Error(base + retry);
   }
   $('waEsNote').textContent = 'Number connect ho raha hai…';
   await api('/api/whatsapp?action=embedded-signup', {

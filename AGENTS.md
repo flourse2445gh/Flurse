@@ -225,6 +225,13 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
     Embedded Signup is configured. Shop owners should only ever see **Connect
     with Facebook**; the form is an operator escape hatch for connecting a
     number before Meta approves the portfolio for ES.
+  - **When the popup returns no `phone_number_id`, say what to do, not why.**
+    Meta sends `FINISH_ONLY_WABA` when the owner finished without adding a
+    number; that is the common case and it is the owner's to fix, so the tab
+    names the fix inline (`waEsError`, which stays on the page — a toast is
+    gone in 2.6s). Portfolio verification is a Meta-side step and is only
+    mentioned after a second failed try, so the first message does not send the
+    owner down the wrong path.
   - **A silent webhook is almost always a missing `subscribed_apps` call, not
     a code bug.** If inbound messages never reach the DB, check
     `GET /{waba-id}/subscribed_apps` — the WABA is often subscribed to a
