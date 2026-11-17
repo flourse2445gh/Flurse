@@ -258,17 +258,17 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
 - **A new order reaches the owner, not just the dashboard.** `createOrderFromMessage`
   returns a `newOrder` flag (true only on the first insert, so a follow-up that
   adds details never re-alerts). The dashboard carries a live "naya order" badge
-  plus a chime: it counts orders newer than `tenants.orders_seen_at`
+  plus a bell: it counts orders newer than `tenants.orders_seen_at`
   (`unseenOrderCount` in `lib/orders.js`), `GET /api/dashboard` returns it as
   `tenant.unseenOrders`, and `POST /api/dashboard?seen=1` calls `markOrdersSeen`
   to move the watermark.
-  - **The badge + chime are the primary alert and need no signup, key or
+  - **The badge + bell are the primary alert and need no signup, key or
     account.** `app.html` polls its own `/api/dashboard` every 15s
     (`startOrderWatch`/`refreshQuietly`); when `unseenOrders` grows it plays
-    `public/assets/order-chime.mp3` and shows a toast, then marks the orders
+    `public/assets/order-bell.mp3` and shows a toast, then marks the orders
     seen. It is a local file played by the browser — no Meta call, no message,
     no AI request — so the alert costs nothing, which is the whole point. The
-    chime is unlocked on the first click/keypress (browsers block audio until
+    bell is unlocked on the first click/keypress (browsers block audio until
     the user interacts, and the owner always has by logging in), the very first
     load stays silent (orders were already waiting), the poll pauses while the
     tab is hidden, and the owner can mute it (🔔/🔕, remembered in
@@ -278,7 +278,7 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
     is set, `api/webhook.js` also calls `emailNewOrder` from `lib/notify.js`
     best-effort, after the reply is queued, so an email outage cannot break a
     reply. Without a key the email is simply skipped and nothing on screen nags
-    the owner about it — the badge and chime are the product.
+    the owner about it — the badge and bell are the product.
   - **A delivery due tomorrow is shown on screen, not only messaged.**
     `ordersDueTomorrow` (IST calendar day) feeds `tenant.dueTomorrow` on
     `GET /api/dashboard`, and `renderDueBanner` in `app.html` lists it with the

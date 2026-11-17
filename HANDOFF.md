@@ -90,7 +90,7 @@ deploy, conventions aur architecture likha hai. Wahi sach hai.
   dashboard banner, aur send fail hone par turant alert (pehle chup-chaap band
   ho jata tha)
 - **Naye order par owner ko alert (koi signup nahi)** — naya order aane par
-  dashboard pe "naya order" badge aur **order chime** (local sound file, zero AI
+  dashboard pe "naya order" badge aur **order bell** (local sound file, zero AI
   credit, koi account/key nahi) jo dekhne par clear hote hain. Email optional
   hai (`RESEND_API_KEY` mile to hi bhejta hai, warna chup-chaap skip)
 - **Nayi shop ka starter catalog** — signup par 8 common flower items seed hote

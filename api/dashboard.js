@@ -67,7 +67,7 @@ export default handler(async (req, res) => {
         // the banner and the WhatsApp tab cannot disagree.
         waAlert: connectionAlert(session),
         // Orders that landed since the owner last opened the dashboard, so the
-        // app can chime and badge a new one the moment it arrives.
+        // app can ring the bell and badge a new one the moment it arrives.
         unseenOrders: unseen,
         // Deliveries due tomorrow, so the owner is told on screen even when no
         // WhatsApp window is open and no email key is set.

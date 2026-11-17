@@ -2939,8 +2939,8 @@ test('the dashboard shows deliveries due tomorrow, even with no email key', asyn
   assert.equal(typeof body.tenant.dueTomorrow[0].paid, 'boolean');
 });
 
-test('with no email key the dashboard still works, so the chime needs no signup', async () => {
-  // The owner alert is the dashboard badge + chime, which needs no account, no
+test('with no email key the dashboard still works, so the bell needs no signup', async () => {
+  // The owner alert is the dashboard badge + bell, which needs no account, no
   // key and no email. Email is an optional extra; without a key nothing breaks.
   delete process.env.RESEND_API_KEY;
   const login = await api('/api/auth?action=login', {

@@ -529,10 +529,10 @@ async function enterApp() {
   // so a shop with a big customer list does not pay for it on every login.
   loadOccasions().catch(() => {});
 
-  // A new order since the last look gets a chime — the owner should not have to
+  // A new order since the last look gets a bell — the owner should not have to
   // stare at the screen. The very first load stays silent: those orders were
   // already waiting, and a sound on login would only startle.
-  if (!isFirstLoad && (data.tenant.unseenOrders || 0) > prevUnseen) orderChime();
+  if (!isFirstLoad && (data.tenant.unseenOrders || 0) > prevUnseen) orderBell();
 
   // The owner is looking at the dashboard now, so the "naya order" badge has
   // done its job and the watermark moves forward.
@@ -542,7 +542,7 @@ async function enterApp() {
   startOrderWatch();
 }
 
-// Polls the dashboard so a new order chimes within seconds, even if the owner
+// Polls the dashboard so a new order rings the bell within seconds, even if the owner
 // never touches Refresh. This is a plain GET against our own API — no Meta
 // call, no AI call, so it costs no credit. It pauses when the tab is hidden,
 // because a shopkeeper who has switched tabs is not watching the screen, and
@@ -567,7 +567,7 @@ async function refreshQuietly() {
     renderSummary(data.summary);
     renderOrders();
     if (grew) {
-      orderChime();
+      orderBell();
       toast(`🆕 ${data.tenant.unseenOrders} naya order`);
       // The owner is at the screen and has just been told, so the badge has
       // done its job — otherwise it would keep counting up while they watch.
@@ -607,26 +607,26 @@ function renderTenant(tenant) {
   renderUsage();
 }
 
-// ---- order chime ---------------------------------------------------------
-// A chime when a new order lands. It is a local file played by the browser, so
+// ---- order bell ---------------------------------------------------------
+// A bell when a new order lands. It is a local file played by the browser, so
 // it costs nothing: no API call, no message, no AI credit. No account, no key,
 // nothing to sign up for — the sound ships with the app.
 //
 // Browsers block audio until the user has interacted with the page once. The
 // owner always has (they logged in), so we reuse a single preloaded <audio> and
-// unlock it on the first click/keypress, which is what makes the chime reliable
+// unlock it on the first click/keypress, which is what makes the bell reliable
 // rather than a coin flip.
-const chimeEl = new Audio('/assets/order-chime.mp3');
-chimeEl.preload = 'auto';
-chimeEl.volume = 0.7;
+const bellEl = new Audio('/assets/order-bell.mp3');
+bellEl.preload = 'auto';
+bellEl.volume = 0.7;
 let audioCtx = null;
 
 function unlockAudio() {
   // A silent play/pause during a real gesture tells the browser this page may
-  // make sound, so the later chime is allowed. Best-effort; never throws.
+  // make sound, so the later bell is allowed. Best-effort; never throws.
   try {
-    const p = chimeEl.play();
-    if (p && p.then) p.then(() => { chimeEl.pause(); chimeEl.currentTime = 0; }).catch(() => {});
+    const p = bellEl.play();
+    if (p && p.then) p.then(() => { bellEl.pause(); bellEl.currentTime = 0; }).catch(() => {});
   } catch { /* ignore */ }
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
@@ -636,11 +636,11 @@ function unlockAudio() {
 window.addEventListener('pointerdown', unlockAudio, { once: true });
 window.addEventListener('keydown', unlockAudio, { once: true });
 
-function orderChime() {
+function orderBell() {
   if (localStorage.getItem('bb_sound') === 'off') return;
   try {
-    chimeEl.currentTime = 0;
-    const p = chimeEl.play();
+    bellEl.currentTime = 0;
+    const p = bellEl.play();
     if (p && p.catch) p.catch(() => beep());
     return;
   } catch { /* fall through to the beep */ }
