@@ -23,12 +23,23 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
 ## Commands
 
 - `npm run dev` — dev server on :3000, uses `.env` (local Postgres)
-- `npm test` — runs `node --test tests/*.test.js` against the local DB
+- `npm test` — runs `node --test tests/*.test.js` against a real Postgres
   (`TEST_DATABASE_URL`, default `postgres://budsbox:budsbox@localhost:5432/budsbox_test`).
-  If localhost:5432 refuses, Postgres is in a sidecar — find it with
-  `grep ':1538 ' /proc/net/tcp` (hex for 5432) and pass that host via
-  `TEST_DATABASE_URL`.
-- `npm run migrate` — applies `db/schema.sql`
+  The DB may be a sidecar (`grep ':1538 ' /proc/net/tcp` — hex for 5432 — then
+  pass that host) or, when no sidecar is running, a local cluster:
+  ```
+  export PGBIN=/usr/lib/postgresql/17/bin
+  sudo mkdir -p /var/lib/pgtest && sudo chown postgres:postgres /var/lib/pgtest
+  sudo -u postgres $PGBIN/initdb -D /var/lib/pgtest -U b --auth=trust
+  sudo -u postgres $PGBIN/pg_ctl -D /var/lib/pgtest -l /tmp/pg.log -o "-p 5432" start
+  sudo -u postgres $PGBIN/psql -h 127.0.0.1 -U b -d postgres -c "create database budsbox_test;"
+  sudo -u postgres $PGBIN/psql -h 127.0.0.1 -U b -d postgres -c "create role budsbox login password 'budsbox' superuser;"
+  ```
+  Run the suite in a clean env (`env -i PATH="$PATH" HOME="$HOME" …`) so an
+  exported prod `DATABASE_URL` cannot point the tests at production.
+- `npm run migrate` — applies `db/schema.sql`. **Also run it against production
+  after a schema change** (pull the prod `DATABASE_URL` from Vercel env), or the
+  new code queries columns that do not exist yet.
 
 ## Deploy
 
