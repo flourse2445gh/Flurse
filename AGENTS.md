@@ -205,8 +205,24 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
   token exchange, the WABA `subscribed_apps` call and the phone-number lookup.
   The access token never reaches the page. Without those vars the tab falls
   back to pasting a Meta *Phone number ID* + *Access token* by hand. Both paths
-  land in the same columns. **Disconnect** is the DELETE on `/api/whatsapp`,
-  surfaced in that tab and as a header chip (`waChip`).
+  land in the same columns.
+  - **Disconnect has two levels, and the difference is what Meta allows.** The
+    DELETE on `/api/whatsapp` is *AI pause*: credentials are kept, the status
+    gate stops replies, and one click brings the number back. **Release**
+    (`POST /api/whatsapp?action=release`, button *Number wapas lo*) is leaving
+    for good: it calls Meta's `POST /{phone-number-id}/deregister`, which stops
+    the number working with Cloud API, then clears the credentials. Meta offers
+    **no API to delete a number** — deleting it from the portfolio, the step
+    that frees it for the normal WhatsApp app, is WhatsApp Manager only, and a
+    number used for paid messages in the last 30 days can only be deleted after
+    those 30 days. So the UI does the API half and walks the owner through the
+    WhatsApp Manager half in place (`waReleaseDone`); it never claims the number
+    is already back to normal. The operator panel has the same release button
+    (`POST /api/admin?action=release`), for a shop that has gone quiet.
+    A failed deregister still clears the local side and reports `metaReleased:
+    false`, so the owner is never trapped by a Meta hiccup.
+  - The leaving controls (`waDisconnectBox`) are hidden until a number is
+    connected, so an unconnected shop is not offered a disconnect.
   - Meta side: create a Facebook Login for Business configuration from the
     *WhatsApp embedded sign-up configuration with 60-day expiry token* template
     and add every hosting domain to **Allowed domains** and **Valid OAuth

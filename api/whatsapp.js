@@ -4,6 +4,7 @@ import { requireSession } from '../lib/auth.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 import {
   embeddedSignupConfigured, exchangeSignupCode, subscribeAppToWaba, fetchPhoneNumber,
+  deregisterPhoneNumber,
 } from '../lib/whatsapp.js';
 import { connectionAlert } from '../lib/wahealth.js';
 
@@ -71,6 +72,11 @@ export default handler(async (req, res) => {
     return;
   }
 
+  if (action === 'release') {
+    await releaseNumber(req, res, session);
+    return;
+  }
+
   const body = await readJson(req);
   const phoneNumberId = String(body.phone_number_id ?? '').trim();
   const accessToken = String(body.access_token ?? '').trim();
@@ -108,6 +114,54 @@ export default handler(async (req, res) => {
     verifyToken: rows[0].wa_verify_token,
   });
 });
+
+// POST /api/whatsapp?action=release
+// The owner is leaving and wants their number back. Deregister stops the number
+// working with Cloud API, which is the half Meta lets us do; deleting it from
+// the portfolio, the half that frees it for the WhatsApp app, is WhatsApp
+// Manager only, so the dashboard walks them through that. Credentials are
+// cleared either way, so a released number cannot keep receiving here.
+async function releaseNumber(req, res, session) {
+  const { rows } = await query(
+    'SELECT wa_phone_number_id, wa_access_token FROM tenants WHERE id = $1',
+    [session.tenant_id],
+  );
+  const t = rows[0] ?? {};
+  if (!t.wa_phone_number_id || !t.wa_access_token) {
+    throw new HttpError(400, 'No WhatsApp number is connected');
+  }
+
+  // A deregister that fails (an expired token, a Meta hiccup) must not block
+  // the owner from leaving: the local side is cleared regardless, and the reply
+  // says whether Meta was reached so the instructions can match.
+  let metaReleased = true;
+  try {
+    await deregisterPhoneNumber({
+      phoneNumberId: t.wa_phone_number_id,
+      accessToken: t.wa_access_token,
+    });
+  } catch (err) {
+    metaReleased = false;
+    console.error('Deregister failed', err.message);
+  }
+
+  await query(
+    `UPDATE tenants
+        SET wa_access_token = NULL,
+            wa_phone_number_id = NULL,
+            wa_waba_id = NULL,
+            wa_display_number = NULL,
+            wa_token_expires_at = NULL,
+            wa_last_error = NULL,
+            wa_last_error_kind = NULL,
+            wa_last_error_at = NULL,
+            updated_at = now()
+      WHERE id = $1`,
+    [session.tenant_id],
+  );
+
+  json(res, 200, { connected: false, metaReleased });
+}
 
 // The browser already knows which assets the owner picked; it only sends the
 // ids and the 30-second code. The access token never leaves this server.

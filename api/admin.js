@@ -1,5 +1,6 @@
 import { query } from '../lib/db.js';
 import { daysLeft } from '../lib/trial.js';
+import { deregisterPhoneNumber } from '../lib/whatsapp.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 // Cross-tenant operator view. Guarded by a bearer secret, not a user session,
@@ -27,6 +28,43 @@ export default handler(async (req, res) => {
     const action = params.get('action');
     const { slug } = await readJson(req);
     if (!slug) throw new HttpError(400, 'slug is required');
+
+    // release is the operator's version of the shop's own "Number wapas lo":
+    // tell Meta to drop the number from Cloud API, then clear the credentials
+    // here. Deregister needs the number's own token, so it is read first.
+    if (action === 'release') {
+      const { rows: found } = await query(
+        'SELECT wa_phone_number_id, wa_access_token FROM tenants WHERE slug = $1',
+        [slug],
+      );
+      if (!found.length) throw new HttpError(404, 'Shop not found');
+      const t = found[0];
+
+      let metaReleased = false;
+      if (t.wa_phone_number_id && t.wa_access_token) {
+        try {
+          await deregisterPhoneNumber({
+            phoneNumberId: t.wa_phone_number_id,
+            accessToken: t.wa_access_token,
+          });
+          metaReleased = true;
+        } catch (err) {
+          console.error('Deregister failed', err.message);
+        }
+      }
+
+      const { rows } = await query(
+        `UPDATE tenants
+            SET wa_access_token = NULL, wa_phone_number_id = NULL, wa_waba_id = NULL,
+                wa_display_number = NULL, wa_token_expires_at = NULL,
+                wa_last_error = NULL, wa_last_error_kind = NULL, wa_last_error_at = NULL,
+                updated_at = now()
+          WHERE slug = $1 RETURNING slug, business_name, status`,
+        [slug],
+      );
+      json(res, 200, { tenant: rows[0], metaReleased });
+      return;
+    }
 
     // suspend/activate flip the tenant lifecycle; disconnect also clears the
     // WhatsApp credentials so the number stops replying immediately.

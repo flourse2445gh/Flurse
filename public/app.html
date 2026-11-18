@@ -300,14 +300,33 @@
           </form>
           </details>
 
+          <div id="waDisconnectBox" class="hidden">
           <div class="divider"></div>
 
-          <h3 style="font-size:14px">Disconnect</h3>
+          <h3 style="font-size:14px">Connection band karni hai?</h3>
           <p class="muted" style="margin:6px 0 12px">
-            Number hatana hai? Disconnect dabao — AI turant ruk jayega aur is number par koi auto-reply nahi jayegi.
-            Aapka data (orders, chats) safe rehta hai, aur kabhi bhi dobara connect kar sakte ho.
+            Do tarike hain — jo aap chahte ho wahi chuno.
           </p>
-          <button class="btn ghost" type="button" id="waDisconnect" style="color:var(--red);border-color:rgba(239,77,77,.35)">🔌 Disconnect WhatsApp number</button>
+
+          <div style="margin-bottom:14px">
+            <button class="btn ghost" type="button" id="waDisconnect" style="color:var(--red);border-color:rgba(239,77,77,.35)">🔌 AI pause karo (number rehne do)</button>
+            <p class="muted" style="margin:8px 0 0;font-size:12px;line-height:1.5">
+              AI turant ruk jayega, is number par koi auto-reply nahi jayegi.
+              Aapka number, orders aur chats sab safe rehte hain, aur ek click me
+              dobara chalu ho jata hai.
+            </p>
+          </div>
+
+          <div>
+            <button class="btn ghost" type="button" id="waRelease" style="color:var(--red);border-color:rgba(239,77,77,.35)">↩️ Number wapas lo (BudsBox chhodo)</button>
+            <p class="muted" style="margin:8px 0 0;font-size:12px;line-height:1.5">
+              Number BudsBox se hata diya jayega, taaki aap use apne normal
+              WhatsApp me daal sako — jaise pehle tha. Iske baad dobara connect
+              karne par phir se Facebook se jodna padega.
+            </p>
+            <div id="waReleaseDone" class="hidden" style="margin-top:12px;padding:12px 14px;border-radius:12px;background:var(--brand-soft);font-size:12.5px"></div>
+          </div>
+          </div>
         </div>
         <div class="card">
           <h3>Connection status</h3>
@@ -1317,6 +1336,9 @@ async function loadWhatsApp() {
     : `<span class="pill qr_pending"><span class="dot"></span>Not connected</span>
        <p class="muted" style="margin-top:10px">Abhi koi WhatsApp number juda nahi hai. Left side se connect karo.</p>`;
   $('waDisconnect').disabled = !wa.connected;
+  // The leaving controls only make sense once something is connected.
+  $('waDisconnectBox').classList.toggle('hidden', !wa.connected);
+  if (!wa.connected) $('waReleaseDone').classList.add('hidden');
   renderWaChip();
 }
 
@@ -1348,10 +1370,46 @@ $('waForm').onsubmit = async (e) => {
 };
 
 $('waDisconnect').onclick = async () => {
-  if (!confirm('WhatsApp number disconnect karna hai? AI turant ruk jayega (data safe rahega).')) return;
-  try { await api('/api/whatsapp', { method: 'DELETE' }); await loadWhatsApp(); toast('Number disconnect ho gaya 🔌'); }
+  if (!confirm('AI pause karna hai? Number jude rahega, orders aur chats safe rahenge, aur ek click me dobara chalu ho jayega.')) return;
+  try { await api('/api/whatsapp', { method: 'DELETE' }); await loadWhatsApp(); toast('AI pause ho gaya — number safe hai 🔌'); }
   catch (err) { toast(err.message); }
 };
+
+// Leaving for good. Deregister stops the number working with Cloud API, but
+// deleting it from the Meta portfolio — the step that frees it for the WhatsApp
+// app — has no API, so the owner is walked through WhatsApp Manager afterwards.
+$('waRelease').onclick = async () => {
+  if (!confirm('Number BudsBox se hata dena hai? Aapka AI band ho jayega aur ye number yahan dobara kaam nahi karega jab tak aap phir se connect na karo.')) return;
+  $('waRelease').disabled = true;
+  try {
+    const out = await api('/api/whatsapp?action=release', { method: 'POST' });
+    await loadWhatsApp();
+    showReleaseDone(out.metaReleased);
+  } catch (err) { toast(err.message); }
+  finally { $('waRelease').disabled = false; }
+};
+
+// The one step Meta keeps manual. Shown in place, with the number, so the owner
+// is not sent hunting through a dashboard we cannot drive for them.
+function showReleaseDone(metaReleased) {
+  const el = $('waReleaseDone');
+  const steps = `
+    <p style="margin:0 0 8px"><b>Number yahan se hata diya gaya.</b> Ab use normal WhatsApp me wapas laane ke liye ye aakhri step aapko Meta par karna hoga:</p>
+    <ol style="margin:0 0 10px;padding-left:18px;line-height:1.7">
+      <li><a href="https://business.facebook.com/wa/manage/home/" target="_blank" rel="noopener">WhatsApp Manager</a> kholo</li>
+      <li><b>Account tools</b> (toolbox icon) → <b>Phone numbers</b></li>
+      <li>Apne number ke saamne 🗑️ trash icon dabao aur flow poora karo</li>
+    </ol>
+    <p style="margin:0;font-size:12px" class="muted">
+      ${metaReleased
+        ? 'BudsBox ne Cloud API se number turant hata diya hai.'
+        : 'BudsBox ne yahan se hata diya; Meta tak pahunchna pada — wahi step upar diye hain.'}
+      Agar pichhle 30 din me is number se paid message gaya ho, to Meta 30 din baad hi delete karne dega.
+    </p>`;
+  el.innerHTML = steps;
+  el.classList.remove('hidden');
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 
 $('waCopy').onclick = () => { navigator.clipboard.writeText($('waWebhook').value); toast('Webhook URL copy ho gaya'); };
 $('waCopyVerify').onclick = () => { navigator.clipboard.writeText($('waVerify').value); toast('Verify token copy ho gaya'); };

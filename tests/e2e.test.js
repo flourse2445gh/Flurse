@@ -749,6 +749,104 @@ test('a shop connects and disconnects its WhatsApp number', async () => {
   assert.equal(after.body.connected, false);
 });
 
+// A shop that is leaving wants its number back for the normal WhatsApp app.
+// Deregister is the half Meta offers over the API; the delete that frees the
+// number has no endpoint, so the reply says whether Meta was actually reached.
+test('releasing a number deregisters it with Meta and clears the connection', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const cookie = login.cookie;
+
+  await query(
+    `UPDATE tenants SET wa_phone_number_id = 'PHONE-RELEASE', wa_access_token = 'token-rel',
+            wa_waba_id = 'WABA-1', wa_display_number = '+91 90000 00000'
+      WHERE slug = 'test-cafe'`,
+  );
+
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      calls.push({ url: String(url), method: opts?.method });
+      return new Response(JSON.stringify({ success: true }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const out = await api('/api/whatsapp?action=release', { method: 'POST', cookie });
+    assert.equal(out.status, 200);
+    assert.equal(out.body.connected, false);
+    assert.equal(out.body.metaReleased, true, 'Meta was reached');
+
+    const dereg = calls.find((c) => c.url.endsWith('/PHONE-RELEASE/deregister'));
+    assert.ok(dereg, 'the deregister endpoint was called');
+    assert.equal(dereg.method, 'POST');
+
+    const { rows } = await query(
+      `SELECT wa_phone_number_id, wa_access_token, wa_waba_id, wa_display_number
+         FROM tenants WHERE slug = 'test-cafe'`,
+    );
+    assert.equal(rows[0].wa_phone_number_id, null, 'the number id is cleared');
+    assert.equal(rows[0].wa_access_token, null, 'the token is cleared');
+    assert.equal(rows[0].wa_waba_id, null);
+    assert.equal(rows[0].wa_display_number, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// The owner must not be trapped by a Meta hiccup: a failed deregister still
+// clears the local side and tells the truth about what Meta saw.
+test('a failed deregister still clears the connection and reports it', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const cookie = login.cookie;
+
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE-RELEASE2', wa_access_token = 'token-rel2' WHERE slug = 'test-cafe'",
+  );
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      return new Response(JSON.stringify({ error: { message: 'Invalid token' } }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const out = await api('/api/whatsapp?action=release', { method: 'POST', cookie });
+    assert.equal(out.status, 200);
+    assert.equal(out.body.metaReleased, false, 'the failure is reported');
+    const { rows } = await query(
+      "SELECT wa_phone_number_id, wa_access_token FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(rows[0].wa_phone_number_id, null, 'the owner still gets out');
+    assert.equal(rows[0].wa_access_token, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('releasing with nothing connected is refused', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = NULL, wa_access_token = NULL WHERE slug = 'test-cafe'",
+  );
+  const out = await api('/api/whatsapp?action=release', { method: 'POST', cookie: login.cookie });
+  assert.equal(out.status, 400);
+});
+
 test('embedded signup exchanges the code and subscribes the account', async () => {
   const login = await api('/api/auth?action=login', {
     method: 'POST',
@@ -1079,6 +1177,63 @@ test('the operator can suspend, activate and export shops', async () => {
   const text = await csv.text();
   assert.match(text.split('\n')[0], /^shop,slug,owner,status/);
   assert.match(text, /test-cafe/);
+});
+
+// The operator has the same release power as the shop, so a shop that has gone
+// quiet can have its number freed without the owner doing anything.
+test('the operator can release a shop\'s number from Meta', async () => {
+  const auth = { Authorization: 'Bearer test-admin-secret' };
+
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE-OPREL', wa_access_token = 'token-oprel' WHERE slug = 'rival-cafe'",
+  );
+
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      calls.push({ url: String(url), method: opts?.method });
+      return new Response(JSON.stringify({ success: true }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const res = await fetch(`${BASE}/api/admin?action=release`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: 'rival-cafe' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.metaReleased, true);
+    assert.ok(calls.some((c) => c.url.endsWith('/PHONE-OPREL/deregister')), 'Meta was told');
+
+    const { rows } = await query(
+      "SELECT wa_phone_number_id, wa_access_token FROM tenants WHERE slug = 'rival-cafe'",
+    );
+    assert.equal(rows[0].wa_phone_number_id, null);
+    assert.equal(rows[0].wa_access_token, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// An operator release on a shop that has no number must not pretend to reach
+// Meta; it clears nothing and says so.
+test('the operator release is a no-op on a shop with no number', async () => {
+  const auth = { Authorization: 'Bearer test-admin-secret' };
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = NULL, wa_access_token = NULL WHERE slug = 'rival-cafe'",
+  );
+  const res = await fetch(`${BASE}/api/admin?action=release`, {
+    method: 'POST',
+    headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug: 'rival-cafe' }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).metaReleased, false);
 });
 
 test('logout invalidates the session', async () => {
