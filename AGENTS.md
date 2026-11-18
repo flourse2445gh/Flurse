@@ -221,6 +221,17 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
     (`POST /api/admin?action=release`), for a shop that has gone quiet.
     A failed deregister still clears the local side and reports `metaReleased:
     false`, so the owner is never trapped by a Meta hiccup.
+  - **A coexistence number is released differently, and Meta is not called.**
+    When the number still lives in the owner's WhatsApp Business app, Meta
+    refuses `deregister` while it is shared with both. `fetchPhoneNumber` reads
+    `is_on_biz_app` (and `platform_type`), the value is stored as
+    `wa_on_biz_app` on connect and cleared on every disconnect path.
+    `releaseNumber` skips the Meta call when `wa_on_biz_app` is true and returns
+    `onBizApp`, so the dashboard shows the one-tap *Settings > Account >
+    Business Platform > Disconnect Account* route instead of WhatsApp Manager.
+    The WhatsApp tab also states up front that the WhatsApp Business app is
+    required, so onboarding steers owners onto the path that makes leaving
+    trivial.
   - The leaving controls (`waDisconnectBox`) are hidden until a number is
     connected, so an unconnected shop is not offered a disconnect.
   - **The simplest way to leave is the owner's own WhatsApp app, and the
