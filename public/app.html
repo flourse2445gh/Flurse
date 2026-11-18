@@ -503,8 +503,8 @@ $('signupForm').onsubmit = async (e) => {
       business_name: $('suName').value, email: $('suEmail').value,
       password: $('suPass').value, phone: $('suPhone').value || null,
     }) });
-    toast('Shop ban gaya! 14 din ka trial shuru 🎉');
     await enterApp();
+    toast('Shop ban gaya! Ab apna WhatsApp jodo — 1 click 🎉');
   } catch (err) { $('suError').textContent = err.message; }
 };
 
@@ -531,6 +531,14 @@ async function enterApp() {
   // The CRM list and the offers tab are only fetched once the owner opens them,
   // so a shop with a big customer list does not pay for it on every login.
   loadOccasions().catch(() => {});
+
+  // A brand-new shop (or one that never finished connecting) lands on the
+  // connect tab, because that is the only thing between it and a live AI. On
+  // later loads the owner's chosen tab is left alone.
+  if (isFirstLoad && state.wa && !state.wa.connected) {
+    const locked = data.tenant.status === 'suspended' || data.tenant.status === 'cancelled';
+    if (!locked) showTab('whatsapp');
+  }
 
   // A new order since the last look gets a bell — the owner should not have to
   // stare at the screen. The very first load stays silent: those orders were
@@ -697,9 +705,7 @@ function renderOrderChip(tenant) {
 }
 
 $('orderChip').onclick = () => {
-  document.querySelectorAll('.tab[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'orders'));
-  document.querySelectorAll('.tabpane').forEach((p) => p.classList.add('hidden'));
-  $('tab-orders').classList.remove('hidden');
+  showTab('orders');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
@@ -717,9 +723,7 @@ function renderWaBanner(alert) {
 }
 
 function openWhatsappTab() {
-  document.querySelectorAll('.tab[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'whatsapp'));
-  document.querySelectorAll('.tabpane').forEach((p) => p.classList.add('hidden'));
-  $('tab-whatsapp').classList.remove('hidden');
+  showTab('whatsapp');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -781,12 +785,15 @@ function renderSummary(s) {
 }
 
 // ---- tabs ----------------------------------------------------------------
+function showTab(name) {
+  document.querySelectorAll('.tab[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
+  document.querySelectorAll('.tabpane').forEach((p) => p.classList.add('hidden'));
+  const pane = $('tab-' + name);
+  if (pane) pane.classList.remove('hidden');
+}
+
 document.querySelectorAll('.tab[data-tab]').forEach((btn) => {
-  btn.onclick = () => {
-    document.querySelectorAll('.tab[data-tab]').forEach((b) => b.classList.toggle('on', b === btn));
-    document.querySelectorAll('.tabpane').forEach((p) => p.classList.add('hidden'));
-    $('tab-' + btn.dataset.tab).classList.remove('hidden');
-  };
+  btn.onclick = () => showTab(btn.dataset.tab);
 });
 $('refreshBtn').onclick = () => enterApp().catch(() => showAuth('login'));
 
@@ -1443,7 +1450,10 @@ async function finishEmbeddedSignup(code) {
     body: JSON.stringify({ code, phone_number_id: phoneNumberId, waba_id: ids.waba_id || null }),
   });
   await loadWhatsApp();
-  toast('WhatsApp connect ho gaya ✅');
+  // Connected is not the finish line, live is. Drop the owner into the inbox
+  // so the first thing they see is the AI ready to work.
+  showTab('chats');
+  toast('WhatsApp jud gaya — AI live hai ab ✅');
 }
 
 // ---- shop profile --------------------------------------------------------
