@@ -360,6 +360,90 @@ test('webhook verification handshake echoes the challenge only for the right tok
   assert.equal(bad.status, 403);
 });
 
+// The owner ended the partnership from their own WhatsApp Business app. Meta
+// fires account_update / PARTNER_REMOVED; we must drop the credentials so the
+// dashboard stops claiming a connection that is gone.
+test('a PARTNER_REMOVED webhook clears the shop that left', async () => {
+  await query(
+    `UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc',
+            wa_waba_id = 'WABA-LEAVE', wa_display_number = '+91 90000 00001'
+      WHERE slug = 'test-cafe'`,
+  );
+
+  const payload = {
+    object: 'whatsapp_business_account',
+    entry: [{ id: '2949482758682047', time: 1748477359, changes: [{
+      field: 'account_update',
+      value: {
+        event: 'PARTNER_REMOVED',
+        waba_info: { waba_id: 'WABA-LEAVE', owner_business_id: '2329417887457253' },
+        disconnection_info: { reason: 'USER_INITIATED', initiated_by: 'CLIENT' },
+      },
+    }] }],
+  };
+  const { raw, sig } = signedWebhook(payload);
+  const res = await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+  assert.equal(res.status, 200);
+
+  const { rows } = await query(
+    `SELECT wa_phone_number_id, wa_access_token, wa_waba_id, wa_display_number,
+            disconnect_reason
+       FROM tenants WHERE slug = 'test-cafe'`,
+  );
+  assert.equal(rows[0].wa_phone_number_id, null, 'the number is cleared');
+  assert.equal(rows[0].wa_access_token, null, 'the token is cleared');
+  assert.equal(rows[0].wa_waba_id, null);
+  assert.equal(rows[0].wa_display_number, null);
+  assert.equal(rows[0].disconnect_reason, 'client_disconnected');
+
+  // And the dashboard now says "not connected", instead of failing sends.
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const wa = await api('/api/whatsapp', { cookie: login.cookie });
+  assert.equal(wa.body.connected, false);
+});
+
+// Other account_update events are not ours to act on: they must leave a live
+// connection untouched.
+test('an unrelated account_update leaves the connection alone', async () => {
+  await query(
+    `UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc',
+            wa_waba_id = 'WABA-KEEP'
+      WHERE slug = 'test-cafe'`,
+  );
+
+  const payload = {
+    object: 'whatsapp_business_account',
+    entry: [{ id: '2949482758682047', time: 1748477359, changes: [{
+      field: 'account_update',
+      value: {
+        event: 'ACCOUNT_RESTRICTION',
+        waba_info: { waba_id: 'WABA-KEEP' },
+        restriction_info: [{ restriction_type: 'RESTRICTED_BIZ_INITIATED_MESSAGING' }],
+      },
+    }] }],
+  };
+  const { raw, sig } = signedWebhook(payload);
+  const res = await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+  assert.equal(res.status, 200);
+
+  const { rows } = await query(
+    "SELECT wa_phone_number_id, wa_access_token FROM tenants WHERE slug = 'test-cafe'",
+  );
+  assert.equal(rows[0].wa_phone_number_id, 'PHONE1', 'the number survives');
+  assert.equal(rows[0].wa_access_token, 'token-abc', 'the token survives');
+});
+
 test('a signed inbound message becomes an order and is idempotent on retry', async () => {
   await query(
     `INSERT INTO products (tenant_id, sku, name, price_cents)

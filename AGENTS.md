@@ -223,6 +223,17 @@ allowance of AI replies per month (Starter 1,500, Growth 4,000, Pro 10,000).
     false`, so the owner is never trapped by a Meta hiccup.
   - The leaving controls (`waDisconnectBox`) are hidden until a number is
     connected, so an unconnected shop is not offered a disconnect.
+  - **The simplest way to leave is the owner's own WhatsApp app, and the
+    webhook now honours it.** An owner who onboarded via WhatsApp Business app
+    coexistence can disconnect from Cloud API in the app (Settings > Account >
+    Business Platform > Disconnect Account); Meta fires `account_update` /
+    `PARTNER_REMOVED` with the Messaging account id. `parseAccountUpdates` reads
+    it and `handleAccountUpdate` clears the credentials and stamps
+    `disconnect_reason = 'client_disconnected'`, so the dashboard stops claiming
+    a live connection the moment the owner walks away. Only `PARTNER_REMOVED` is
+    acted on; other `account_update` events (verification, pricing,
+    restrictions) are logged and ignored. `wa_waba_id` must be cleared too, or
+    a later `PARTNER_REMOVED` would match a shop that already left.
   - Meta side: create a Facebook Login for Business configuration from the
     *WhatsApp embedded sign-up configuration with 60-day expiry token* template
     and add every hosting domain to **Allowed domains** and **Valid OAuth

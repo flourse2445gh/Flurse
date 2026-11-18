@@ -1,6 +1,6 @@
 import { query } from '../lib/db.js';
 import {
-  verifyWebhookSignature, parseInboundMessages, sendWhatsAppText,
+  verifyWebhookSignature, parseInboundMessages, parseAccountUpdates, sendWhatsAppText,
   sendWhatsAppImage, wantsPaymentInfo, publicBaseUrl,
 } from '../lib/whatsapp.js';
 import {
@@ -65,8 +65,57 @@ export default handler(async (req, res) => {
     }
   }
 
+  // The owner can end the partnership from their own WhatsApp Business app. When
+  // they do, Meta unshares the account and this fires. Clearing our credentials
+  // here is what keeps the dashboard honest: without it the shop would look
+  // "connected" while every send fails with a dead token.
+  for (const update of parseAccountUpdates(payload)) {
+    try {
+      await handleAccountUpdate(update);
+    } catch (err) {
+      console.error('Failed to handle account update', update.event, err);
+    }
+  }
+
   json(res, 200, { received: true });
 });
+
+async function handleAccountUpdate(update) {
+  // PARTNER_REMOVED is the one that means "we no longer hold this account".
+  // Other account_update events (verification, pricing, restrictions) are not
+  // ours to act on, so they are logged and left alone.
+  if (update.event !== 'PARTNER_REMOVED' || !update.wabaId) {
+    console.log('account_update ignored:', update.event, update.wabaId || '');
+    return;
+  }
+
+  const { rows } = await query(
+    `UPDATE tenants
+        SET wa_access_token = NULL,
+            wa_phone_number_id = NULL,
+            wa_waba_id = NULL,
+            wa_display_number = NULL,
+            wa_token_expires_at = NULL,
+            wa_last_error = NULL,
+            wa_last_error_kind = NULL,
+            wa_last_error_at = NULL,
+            disconnected_at = now(),
+            disconnect_reason = 'client_disconnected',
+            updated_at = now()
+      WHERE wa_waba_id = $1
+      RETURNING id, slug`,
+    [update.wabaId],
+  );
+
+  if (!rows.length) {
+    console.warn('PARTNER_REMOVED for unknown waba', update.wabaId);
+    return;
+  }
+  console.log(
+    `Shop ${rows[0].slug} disconnected from its WhatsApp app`
+    + (update.initiatedBy ? ` (initiated by ${update.initiatedBy})` : ''),
+  );
+}
 
 async function handleMessage(message) {
   const { rows: tenants } = await query(
