@@ -845,7 +845,8 @@ test('releasing a number deregisters it with Meta and clears the connection', as
 
   await query(
     `UPDATE tenants SET wa_phone_number_id = 'PHONE-RELEASE', wa_access_token = 'token-rel',
-            wa_waba_id = 'WABA-1', wa_display_number = '+91 90000 00000'
+            wa_waba_id = 'WABA-1', wa_display_number = '+91 90000 00000',
+            wa_on_biz_app = false
       WHERE slug = 'test-cafe'`,
   );
 
@@ -931,6 +932,51 @@ test('releasing with nothing connected is refused', async () => {
   assert.equal(out.status, 400);
 });
 
+// A coexistence number (still usable in the owner's WhatsApp Business app) must
+// not be deregistered: Meta refuses that call while the number is shared, and
+// the owner frees it from their own app instead. The reply says so, so the
+// dashboard can show the one-tap route rather than WhatsApp Manager.
+test('releasing a coexistence number skips Meta and says so', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const cookie = login.cookie;
+
+  await query(
+    `UPDATE tenants SET wa_phone_number_id = 'PHONE-COEX', wa_access_token = 'token-coex',
+            wa_on_biz_app = true WHERE slug = 'test-cafe'`,
+  );
+
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ success: true }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const out = await api('/api/whatsapp?action=release', { method: 'POST', cookie });
+    assert.equal(out.status, 200);
+    assert.equal(out.body.onBizApp, true, 'the dashboard is told which route to show');
+    assert.equal(out.body.metaReleased, true);
+    assert.equal(calls.length, 0, 'Meta is not called for a coexistence number');
+
+    const { rows } = await query(
+      "SELECT wa_phone_number_id, wa_access_token, wa_on_biz_app FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(rows[0].wa_phone_number_id, null);
+    assert.equal(rows[0].wa_access_token, null);
+    assert.equal(rows[0].wa_on_biz_app, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test('embedded signup exchanges the code and subscribes the account', async () => {
   const login = await api('/api/auth?action=login', {
     method: 'POST',
@@ -965,7 +1011,14 @@ test('embedded signup exchanges the code and subscribes the account', async () =
     }
     if (u.includes('/subscribed_apps')) return reply({ success: true });
     if (u.includes('/PN-ES')) {
-      return reply({ display_phone_number: '+91 90000 11111', verified_name: 'Test Cafe' });
+      return reply({
+        display_phone_number: '+91 90000 11111',
+        verified_name: 'Test Cafe',
+        // The owner onboarded with their WhatsApp Business app, so Meta says
+        // the number stays usable in that app too.
+        is_on_biz_app: true,
+        platform_type: 'CLOUD_API',
+      });
     }
     return reply({});
   };
@@ -978,18 +1031,21 @@ test('embedded signup exchanges the code and subscribes the account', async () =
     assert.equal(done.status, 200);
     assert.equal(done.body.connected, true);
     assert.equal(done.body.displayNumber, '+91 90000 11111');
+    assert.equal(done.body.onBizApp, true, 'coexistence is recorded from Meta');
 
     assert.equal(calls.length, 3, 'exchange, subscribe, then look up the number');
     assert.ok(calls[0].u.includes('/oauth/access_token'));
     assert.ok(calls[1].u.includes('/WABA-ES/subscribed_apps'));
     assert.equal(calls[1].method, 'POST');
     assert.ok(calls[2].u.includes('/PN-ES'));
+    assert.ok(calls[2].u.includes('is_on_biz_app'), 'the coexistence field is asked for');
 
     // The token the code bought is what gets stored, and it never reaches the
     // browser in any response body.
     const status = await api('/api/whatsapp', { cookie: login.cookie });
     assert.equal(status.body.connected, true);
     assert.equal(status.body.displayNumber, '+91 90000 11111');
+    assert.equal(status.body.onBizApp, true, 'and it is read back to the dashboard');
     assert.equal(status.body.hasAccessToken, true);
     assert.equal(status.body.embeddedSignup.available, true);
     assert.equal(status.body.embeddedSignup.configId, 'config-e2e');

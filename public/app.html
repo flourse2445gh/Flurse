@@ -275,6 +275,20 @@
 
           <div id="waLocked" class="hidden" style="margin-bottom:16px;padding:12px 14px;border-radius:12px;background:var(--brand-soft);font-size:12.5px;line-height:1.5"></div>
 
+          <div id="waBizReq" style="margin-bottom:16px;padding:12px 14px;border-radius:12px;border:1px solid var(--brand);background:var(--brand-soft);font-size:12.5px;line-height:1.6">
+            <b>Zaroori: pehle WhatsApp Business app</b>
+            <p style="margin:6px 0 0">
+              BudsBox <b>WhatsApp Business app</b> wale number par chalta hai. Isse do
+              fayde hain: aapka number aapke phone par bhi normal chalta rehta hai, aur
+              kabhi bhi chhodna ho to <b>ek tap me</b> wapas apna ho jata hai.
+            </p>
+            <p style="margin:6px 0 0" id="waBizReqHow">
+              Aapke paas normal WhatsApp hai? <b>WhatsApp Business</b> app install karo
+              (Play Store / App Store se — free hai), usi number se verify karo, phir
+              yahan aake connect karo. Number wahi rahega, bas Business app me aa jayega.
+            </p>
+          </div>
+
           <div id="waEsBox" class="hidden" style="margin-bottom:16px">
             <button class="btn block" type="button" id="waEsStart"
                     style="background:#1877f2;font-weight:700;padding:12px">
@@ -327,12 +341,7 @@
             <div id="waReleaseDone" class="hidden" style="margin-top:12px;padding:12px 14px;border-radius:12px;background:var(--brand-soft);font-size:12.5px"></div>
           </div>
 
-          <p class="muted" style="margin:16px 0 0;font-size:12px;line-height:1.5">
-            <b>Sabse aasan tarika:</b> agar aapke phone par WhatsApp Business app hai,
-            to aap wahin se ek tap me chhod sakte ho — <b>Settings → Account →
-            Business Platform → Disconnect Account</b>. Number turant waise hi ho
-            jayega, aur BudsBox yahan khud hi update ho jayega.
-          </p>
+          <p class="muted" id="waLeaveHint" style="margin:16px 0 0;font-size:12px;line-height:1.5"></p>
           </div>
         </div>
         <div class="card">
@@ -1346,6 +1355,18 @@ async function loadWhatsApp() {
   // The leaving controls only make sense once something is connected.
   $('waDisconnectBox').classList.toggle('hidden', !wa.connected);
   if (!wa.connected) $('waReleaseDone').classList.add('hidden');
+
+  // Which way out depends on whether the number still lives in the owner's own
+  // WhatsApp Business app. When it does, leaving is one tap in their app and we
+  // say so first; when it does not, the only route is the release flow below.
+  $('waLeaveHint').innerHTML = wa.onBizApp === true
+    ? '<b>Sabse aasan tarika:</b> aapka number aapke WhatsApp Business app me bhi hai. '
+      + 'Wahin se ek tap me chhod sakte ho — <b>Settings → Account → Business Platform → '
+      + 'Disconnect Account</b>. Number turant waise hi ho jayega aur BudsBox yahan khud '
+      + 'update ho jayega.'
+    : '';
+  // The mandatory-app notice is only useful before a number is connected.
+  $('waBizReq').classList.toggle('hidden', wa.connected || locked);
   renderWaChip();
 }
 
@@ -1391,16 +1412,29 @@ $('waRelease').onclick = async () => {
   try {
     const out = await api('/api/whatsapp?action=release', { method: 'POST' });
     await loadWhatsApp();
-    showReleaseDone(out.metaReleased);
+    showReleaseDone(out);
   } catch (err) { toast(err.message); }
   finally { $('waRelease').disabled = false; }
 };
 
-// The one step Meta keeps manual. Shown in place, with the number, so the owner
-// is not sent hunting through a dashboard we cannot drive for them.
-function showReleaseDone(metaReleased) {
+// The one step Meta keeps manual, and it is different for the two kinds of
+// number. A coexistence number is freed by one tap in the owner's own app;
+// a Cloud-API-only number has to be deleted in WhatsApp Manager. Shown in
+// place, with the number, so the owner is not sent hunting.
+function showReleaseDone(out) {
   const el = $('waReleaseDone');
-  const steps = `
+  const appSteps = `
+    <p style="margin:0 0 8px"><b>Aapka number chhod diya gaya.</b> Iska aakhri hissa aapke phone par ek tap me ho jayega — number aapke WhatsApp Business app me hi hai:</p>
+    <ol style="margin:0 0 10px;padding-left:18px;line-height:1.7">
+      <li>Apne phone par <b>WhatsApp Business</b> app kholo</li>
+      <li><b>Settings → Account → Business Platform</b></li>
+      <li><b>Disconnect Account</b> dabao</li>
+    </ol>
+    <p style="margin:0;font-size:12px" class="muted">
+      Bas. Number turant waise hi ho jayega jaise pehle tha — kuch delete nahi, kuch manual nahi.
+      ${out.metaReleased ? '' : 'Agar Meta ne is number par paid message ke 30 din poore na hone ki wajah se roka ho, to wahi step aapko wahin dikhega.'}
+    </p>`;
+  const managerSteps = `
     <p style="margin:0 0 8px"><b>Number yahan se hata diya gaya.</b> Ab use normal WhatsApp me wapas laane ke liye ye aakhri step aapko Meta par karna hoga:</p>
     <ol style="margin:0 0 10px;padding-left:18px;line-height:1.7">
       <li><a href="https://business.facebook.com/wa/manage/home/" target="_blank" rel="noopener">WhatsApp Manager</a> kholo</li>
@@ -1408,12 +1442,12 @@ function showReleaseDone(metaReleased) {
       <li>Apne number ke saamne 🗑️ trash icon dabao aur flow poora karo</li>
     </ol>
     <p style="margin:0;font-size:12px" class="muted">
-      ${metaReleased
+      ${out.metaReleased
         ? 'BudsBox ne Cloud API se number turant hata diya hai.'
         : 'BudsBox ne yahan se hata diya; Meta tak pahunchna pada — wahi step upar diye hain.'}
       Agar pichhle 30 din me is number se paid message gaya ho, to Meta 30 din baad hi delete karne dega.
     </p>`;
-  el.innerHTML = steps;
+  el.innerHTML = out.onBizApp ? appSteps : managerSteps;
   el.classList.remove('hidden');
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }

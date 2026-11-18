@@ -234,6 +234,12 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_phone TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_waba_id        TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_display_number TEXT;
 
+-- Meta's `is_on_biz_app`: true when the number is shared with the WhatsApp
+-- Business app (coexistence), so the owner can keep using their own app and can
+-- leave from it in one tap. It decides which leaving instructions to show, so it
+-- is stored at connect time rather than guessed later.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_on_biz_app BOOLEAN;
+
 -- The Cloud API token expires (60 days from Embedded Signup). Nothing used to
 -- watch that clock, so a shop went silent the day it lapsed: messages kept
 -- arriving and the AI kept drafting, but every send failed and only the server

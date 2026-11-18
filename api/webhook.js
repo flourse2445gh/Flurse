@@ -95,6 +95,7 @@ async function handleAccountUpdate(update) {
             wa_phone_number_id = NULL,
             wa_waba_id = NULL,
             wa_display_number = NULL,
+            wa_on_biz_app = NULL,
             wa_token_expires_at = NULL,
             wa_last_error = NULL,
             wa_last_error_kind = NULL,
