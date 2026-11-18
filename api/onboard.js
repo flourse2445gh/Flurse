@@ -2,12 +2,13 @@ import crypto from 'node:crypto';
 import { withTransaction } from '../lib/db.js';
 import { hashPassword, createSession, sessionCookie } from '../lib/auth.js';
 import { trialEndDate, slugify, daysLeft } from '../lib/trial.js';
+import { seedSampleCatalog } from '../lib/samples.js';
 import { handler, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // POST /api/onboard
-// Creates a tenant + owner user, starts the 3-day trial, and logs the owner in.
+// Creates a tenant + owner user, starts the 14-day trial, and logs the owner in.
 export default handler(async (req, res) => {
   if (!requireMethod(req, res, ['POST'])) return;
 
@@ -20,6 +21,9 @@ export default handler(async (req, res) => {
 
   if (!businessName) throw new HttpError(400, 'business_name is required');
   if (!EMAIL_RE.test(email)) throw new HttpError(400, 'A valid email is required');
+  // The form asks for 8 characters, but the browser check can be skipped, so
+  // the real rule lives here.
+  if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
 
   const slug = slugify(businessName) || `shop-${Date.now().toString(36)}`;
   const trialEndsAt = trialEndDate();
@@ -56,7 +60,11 @@ export default handler(async (req, res) => {
       [tenant.id, email, hashPassword(password)],
     );
 
-    return { tenant, userId: userRows[0].id };
+    // Give the shop a working catalog on day one, so the AI can turn the very
+    // first customer message into an order instead of asking "which flower?".
+    const sampleCount = await seedSampleCatalog(client, tenant.id);
+
+    return { tenant, userId: userRows[0].id, sampleCount };
   });
 
   const { token, expiresAt } = await createSession(result.userId, result.tenant.id);

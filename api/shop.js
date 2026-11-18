@@ -1,6 +1,8 @@
 import { query } from '../lib/db.js';
 import { requireSession, assertTenantWritable } from '../lib/auth.js';
-import { draftReply, availableProviders, parseOrder } from '../lib/ai.js';
+import { draftReply, availableProviders, parseOrder, detectLanguage, matchCatalogItems } from '../lib/ai.js';
+import { freeReply, freeIntent, looksLikeOrder } from '../lib/replies.js';
+import { serveImage, setProductPhoto, setDeliveryPhoto } from '../lib/photos.js';
 import { handler, readJson, json, error, requireMethod, HttpError } from '../lib/http.js';
 import { publicBaseUrl } from '../lib/whatsapp.js';
 import crypto from 'node:crypto';
@@ -138,11 +140,34 @@ async function previewReply(req, res, session) {
     ),
   ]);
 
-  // Parse exactly like the webhook does, then present the order as still new:
-  // unpaid, and with the details the customer has not given yet. That is the
-  // first reply a shop owner wants to see.
-  const parsed = await parseOrder(text, productsResult.rows.filter((p) => p.active !== false));
+  // A clear question that is not also an order is answered from the shop's own
+  // catalog and profile, with no model call at all — exactly as the webhook
+  // does — so an owner asking "kitna?" in the preview sees the free reply and
+  // that it cost nothing.
+  const orderable = productsResult.rows.filter((p) => p.active !== false);
+  const freeOnly = Boolean(freeIntent(text)) && !looksLikeOrder(text);
+  const parsed = freeOnly
+    ? { items: [], details: {}, source: 'free' }
+    : await parseOrder(text, orderable);
   const totalCents = parsed.items.reduce((sum, i) => sum + i.unitPriceCents * i.quantity, 0);
+
+  const free = freeReply({
+    tenant: tenantResult.rows[0],
+    products: orderable,
+    messageText: text,
+    items: parsed.items.length ? parsed.items : matchCatalogItems(text, orderable),
+    openOrder: null,
+  });
+  if (free) {
+    json(res, 200, {
+      reply: free,
+      language: detectLanguage(text),
+      source: 'free',
+      providers: availableProviders().map((p) => p.name),
+      errors: [],
+    });
+    return;
+  }
 
   const drafted = await draftReply({
     tenant: tenantResult.rows[0],
@@ -171,16 +196,74 @@ async function previewReply(req, res, session) {
   });
 }
 
+// GET /api/shop?product=<token>  -> a product's bouquet photo
+// GET /api/shop?delivery=<token> -> a delivered order's photo
+//
+// Public on purpose, exactly like the payment QR: WhatsApp fetches the picture
+// from here with no cookie, and the token is what keeps it unguessable.
+async function servePhoto(res, kind, imageToken) {
+  const image = await serveImage(kind, imageToken);
+  if (!image) {
+    error(res, 404, 'No image for this token');
+    return;
+  }
+  res.statusCode = 200;
+  res.setHeader('Content-Type', image.contentType);
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.end(image.buffer);
+}
+
+// The shop owner uploads a bouquet photo for a catalog item. Stored as a data
+// URL and served under an unguessable token, so the AI can send the picture
+// with a price answer without any file host.
+async function saveProductPhoto(req, res, session) {
+  assertTenantWritable({ status: session.status });
+  const { product_id: productId, image } = await readJson(req);
+  if (!productId) throw new HttpError(400, 'product_id is required');
+  try {
+    const result = await setProductPhoto(session.tenant_id, productId, image);
+    if (!result) throw new HttpError(404, 'Product not found');
+    json(res, 200, { product: result });
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    throw new HttpError(400, err.message);
+  }
+}
+
+// The photo of the flowers that actually went out, saved against the order and
+// sent to the customer with a thank-you (see api/dashboard.js).
+async function saveDeliveryPhoto(req, res, session) {
+  assertTenantWritable({ status: session.status });
+  const { order_id: orderId, image } = await readJson(req);
+  if (!orderId) throw new HttpError(400, 'order_id is required');
+  try {
+    const result = await setDeliveryPhoto(session.tenant_id, orderId, image);
+    if (!result) throw new HttpError(404, 'Order not found');
+    json(res, 200, { order: result });
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    throw new HttpError(400, err.message);
+  }
+}
+
 // GET  /api/shop          -> shop profile settings
 // POST /api/shop          -> update settings
 // POST /api/shop?preview  -> draft a sample reply
 export default handler(async (req, res) => {
   const params = new URL(req.url, 'http://localhost').searchParams;
 
-  // The QR image is public and token-gated, so it is served before any session
-  // check — WhatsApp has no cookie.
+  // The QR and product/delivery images are public and token-gated, so they are
+  // served before any session check — WhatsApp has no cookie.
   if (req.method === 'GET' && params.get('qr')) {
     await serveQr(res, params.get('qr'));
+    return;
+  }
+  if (req.method === 'GET' && params.get('product')) {
+    await servePhoto(res, 'product', params.get('product'));
+    return;
+  }
+  if (req.method === 'GET' && params.get('delivery')) {
+    await servePhoto(res, 'delivery', params.get('delivery'));
     return;
   }
 
@@ -189,6 +272,18 @@ export default handler(async (req, res) => {
   if (req.url?.includes('preview')) {
     if (!requireMethod(req, res, ['POST'])) return;
     await previewReply(req, res, session);
+    return;
+  }
+
+  if (req.url?.includes('delivery-photo')) {
+    if (!requireMethod(req, res, ['POST'])) return;
+    await saveDeliveryPhoto(req, res, session);
+    return;
+  }
+
+  if (req.url?.includes('photo')) {
+    if (!requireMethod(req, res, ['POST'])) return;
+    await saveProductPhoto(req, res, session);
     return;
   }
 

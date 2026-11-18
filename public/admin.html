@@ -144,6 +144,8 @@ function renderShops(shops) {
           ${locked ? 'Activate' : 'Suspend'}
         </button>
         <button class="btn ghost sm" data-action="disconnect" data-slug="${t.slug}" ${t.connected ? '' : 'disabled'}>Disconnect</button>
+        <button class="btn ghost sm" data-action="release" data-slug="${t.slug}" ${t.connected ? '' : 'disabled'}
+                title="Meta se number hatao taaki shop use apne normal WhatsApp me daal sake">↩ Release number</button>
       </div>
     </div>`;
   }).join('');
@@ -153,15 +155,24 @@ $('shopGrid').onclick = async (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const label = btn.dataset.action;
-  if (!confirm(`${label} — ${btn.dataset.slug}?`)) return;
+  const msg = label === 'release'
+    ? `Number Meta se hata dein — ${btn.dataset.slug}?\n\nIske baad shop ko apne normal WhatsApp me daalne ke liye WhatsApp Manager se number delete karna hoga. Credentials yahan se turant hat jayenge.`
+    : `${label} — ${btn.dataset.slug}?`;
+  if (!confirm(msg)) return;
   btn.disabled = true;
   try {
-    await api(`/api/admin?action=${btn.dataset.action}`, {
+    const out = await api(`/api/admin?action=${label}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ slug: btn.dataset.slug }),
     });
-    toast(`Shop ${label} ho gaya`);
+    if (label === 'release') {
+      toast(out.metaReleased
+        ? 'Number Meta se hata diya ✅ Ab shop WhatsApp Manager se delete kare'
+        : 'Yahan se hata diya — Meta tak nahi pahuncha, dobara try karein');
+    } else {
+      toast(`Shop ${label} ho gaya`);
+    }
     await load();
   } catch (err) { toast(err.message); btn.disabled = false; }
 };

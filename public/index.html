@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>BudsBox — Aapki shop ka 24×7 AI salesman, WhatsApp par</title>
-<meta name="description" content="Customer WhatsApp par message karega, BudsBox ka AI usko order me badal dega — aapke catalog se price match karke. Dashboard, chat inbox, order tracking. 14 din free trial.">
+<meta name="description" content="Customer WhatsApp par message karega — aaj ya 15 tarikh ke liye — BudsBox ka AI usko order me badal dega, aapke catalog se price match karke. Order aate hi dashboard par bell bajti hai, koi email ya account nahi chahiye. 14 din free trial.">
 
 <!-- Tailwind CDN -->
 <script src="https://cdn.tailwindcss.com"></script>
@@ -17,6 +17,7 @@
           brand:     '#FF6B9D',   // Flower Pink
           brandDark: '#e8558a',
           wa:        '#25D366',   // WhatsApp Green
+          waDark:    '#128C7E',   // WhatsApp Green, dark — for text on tinted chips
           cream:     '#FEF7F0',   // Cream background
           ink:       '#2B2118'
         },
@@ -95,8 +96,9 @@
       </h1>
 
       <p class="mt-5 max-w-xl mx-auto text-[15px] sm:text-lg text-ink/60 leading-relaxed">
-        Customer WhatsApp par apni baat mein order likhega — BudsBox usko aapke catalog se match karke
-        order bana dega, total ke saath confirmation bhejega, aur sab dashboard me dikha dega. 🚀
+        Customer WhatsApp par apni baat mein order likhega — <b>aaj ke liye ya 15 tarikh ke liye</b> — BudsBox
+        usko aapke catalog se match karke order bana dega, ₹ total ke saath confirmation bhejega, aur
+        order aate hi <b>dashboard par bell bajegi</b>. 🚀
       </p>
 
       <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
@@ -110,7 +112,7 @@
         </a>
       </div>
 
-      <p class="mt-4 text-[12px] text-ink/40">Setup 2 minute · Koi app download nahi · Meta ki official Cloud API</p>
+      <p class="mt-4 text-[12px] text-ink/40">Setup 2 minute · Koi app download nahi · WhatsApp ka official API</p>
 
       <!-- Phone mockup -->
       <div class="mt-14 max-w-[300px] mx-auto animate-fadeUp">
@@ -124,12 +126,13 @@
               </div>
             </div>
             <div class="p-3 space-y-2 h-[290px] thin-scroll overflow-hidden text-[11px]">
-              <div class="bg-white bubble-in px-2.5 py-1.5 max-w-[85%] shadow-sm">Hi, 1 Red Rose Premium aur 2 Mixed Pastel chahiye</div>
+              <div class="bg-white bubble-in px-2.5 py-1.5 max-w-[85%] shadow-sm">Hi, 1 Red Rose Premium aur 2 Mixed Pastel chahiye, 15 tarikh ke liye</div>
               <div class="bg-[#dcf8c6] bubble-out px-2.5 py-1.5 max-w-[88%] ml-auto shadow-sm">
                 Got it! Here's your order:<br />
                 • 1 × Red Rose Premium — ₹1499.00<br />
                 • 2 × Mixed Pastel — ₹2798.00<br />
-                <b>Total: ₹4297.00</b>
+                <b>Total: ₹4297.00</b><br />
+                Delivery: 15 Mar, 11:00 AM
               </div>
               <div class="bg-white bubble-in px-2.5 py-1.5 max-w-[85%] shadow-sm">Perfect 👍</div>
               <div class="bg-[#dcf8c6] bubble-out px-2.5 py-1.5 max-w-[85%] ml-auto shadow-sm">
@@ -157,8 +160,8 @@
         <p class="mt-1 text-[12px] text-ink/50">Missed orders</p>
       </div>
       <div class="reveal">
-        <p class="text-3xl font-extrabold text-ink">₹599</p>
-        <p class="mt-1 text-[12px] text-ink/50">Per month, flat</p>
+        <p class="text-3xl font-extrabold text-ink">₹7,001</p>
+        <p class="mt-1 text-[12px] text-ink/50">Mahine ki bachat vs helper</p>
       </div>
       <div class="reveal">
         <p class="text-3xl font-extrabold text-brandDark">14 din</p>
@@ -180,7 +183,7 @@
       <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
         <div class="w-12 h-12 rounded-2xl bg-brand/10 grid place-items-center text-2xl">🤖</div>
         <h3 class="mt-4 font-bold text-lg">AI Order Parsing</h3>
-        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Customer normal baat mein likhe — "2 red rose aur ek pastel bouquet". AI usko aapke catalog se match karke order lines bana deta hai.</p>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Customer normal baat mein likhe — "2 red rose aur ek pastel bouquet, kal shaam 6 baje". AI usko aapke catalog se match karke order lines bana deta hai.</p>
       </div>
       <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
         <div class="w-12 h-12 rounded-2xl bg-wa/10 grid place-items-center text-2xl">✅</div>
@@ -200,12 +203,27 @@
       <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
         <div class="w-12 h-12 rounded-2xl bg-violet-100 grid place-items-center text-2xl">📊</div>
         <h3 class="mt-4 font-bold text-lg">Booking Dashboard</h3>
-        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Orders, revenue, customers, pending — sab ek jagah. Order status Pending → Confirmed → Fulfilled track karo.</p>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Orders, revenue, customers, pending — sab ek jagah. Kal ki delivery <b>banner</b> par dikhti hai. Status Pending → Confirmed → Fulfilled track karo.</p>
+      </div>
+      <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
+        <div class="w-12 h-12 rounded-2xl bg-rose-100 grid place-items-center text-2xl">🗓️</div>
+        <h3 class="mt-4 font-bold text-lg">Advance Booking</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Customer "15 tarikh", "10 August" ya "agle hafte" bole — app exact din pakad leta hai. Shaadi, birthday, anniversary ka order aaj hi book ho jata hai, 15 din pehle.</p>
+      </div>
+      <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
+        <div class="w-12 h-12 rounded-2xl bg-yellow-100 grid place-items-center text-2xl">🔔</div>
+        <h3 class="mt-4 font-bold text-lg">Naya Order Bell</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Order aaya — dashboard par badge dikha aur aapki apni ringtone baji. Koi email, koi account, koi extra kharcha nahi. Mute karna ho to ek click.</p>
+      </div>
+      <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
+        <div class="w-12 h-12 rounded-2xl bg-teal-100 grid place-items-center text-2xl">💸</div>
+        <h3 class="mt-4 font-bold text-lg">Paise Pehle, Phool Baad Me</h3>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Aapka UPI QR customer ko chala jata hai. Order tab tak Fulfilled nahi hota jab tak "Mark paid" na ho — COD ka jhanjhat nahi.</p>
       </div>
       <div class="bg-white rounded-3xl p-6 shadow-card hover:shadow-soft hover:-translate-y-1 transition reveal">
         <div class="w-12 h-12 rounded-2xl bg-emerald-100 grid place-items-center text-2xl">🔒</div>
         <h3 class="mt-4 font-bold text-lg">Multi-Tenant &amp; Safe</h3>
-        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Har shop ka data alag — koi dusri shop aapka order ya customer nahi dekh sakti. Meta ki official Cloud API, koi ban risk nahi.</p>
+        <p class="mt-1.5 text-[13px] text-ink/55 leading-relaxed">Har shop ka data alag — koi dusri shop aapka order ya customer nahi dekh sakti. WhatsApp ka official API, koi ban risk nahi.</p>
       </div>
     </div>
   </div>
@@ -223,7 +241,9 @@
           sab aapke apne BudsBox dashboard par.
         </p>
         <ul class="mt-6 space-y-3 text-[14px]">
-          <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>Orders ek table me — items, ₹ total, status</span></li>
+          <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>Orders ek table me — items, delivery detail, ₹ total, payment status</span></li>
+          <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>Naya order aaya — <b>bell + badge</b>, turant pata</span></li>
+          <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>Kal ki delivery — <b>banner</b> par saaf dikhti hai, bhoolne ka sawal nahi</span></li>
           <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>Customer inbox — search karo, thread kholo, reply bhejo</span></li>
           <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>Catalog edit — item add karo, price badlo, delete karo</span></li>
           <li class="flex gap-3"><span class="text-wa font-bold">✓</span><span>WhatsApp connect / <b>disconnect</b> — ek click me</span></li>
@@ -288,13 +308,13 @@
         <span class="absolute -top-3 left-7 bg-wa text-white text-[11px] font-bold px-3 py-1 rounded-full">STEP 2</span>
         <div class="text-3xl mt-2">📋</div>
         <h3 class="mt-3 font-bold">Catalog daalo</h3>
-        <p class="mt-1.5 text-[13px] text-ink/55">Apne items aur ₹ price add karo. AI inhi se order match karega.</p>
+        <p class="mt-1.5 text-[13px] text-ink/55">Shuru me 8 common items pehle se bhare milte hain — pehla message hi order ban sakta hai. Apne items aur ₹ price add karo, AI inhi se match karega.</p>
       </div>
       <div class="relative bg-white rounded-3xl p-7 border border-ink/5 shadow-card reveal">
         <span class="absolute -top-3 left-7 bg-ink text-white text-[11px] font-bold px-3 py-1 rounded-full">STEP 3</span>
         <div class="text-3xl mt-2">🔗</div>
         <h3 class="mt-3 font-bold">WhatsApp jodo</h3>
-        <p class="mt-1.5 text-[13px] text-ink/55">Meta ka Phone number ID + token dashboard me paste karo. Bas — AI live. Kabhi bhi disconnect kar sakte ho.</p>
+        <p class="mt-1.5 text-[13px] text-ink/55">Dashboard me "Connect with Facebook" dabao — Facebook se login karke apna shop ka number chun lein. Bas, AI live. Kuch technical cheez copy karne ki zaroorat nahi, aur kabhi bhi ek click me hata sakte ho.</p>
       </div>
     </div>
   </div>
@@ -306,47 +326,134 @@
     <div class="max-w-6xl mx-auto px-5 py-16">
       <div class="text-center reveal">
         <h2 class="text-3xl sm:text-4xl font-extrabold">Simple <span class="text-brand">pricing</span></h2>
-        <p class="mt-3 text-ink/55 text-[15px]">Pehle 14 din free. Pasand aaye to ₹599/month — ek bouquet ke price se bhi kam.</p>
+        <p class="mt-3 text-ink/55 text-[15px]">Pehle 14 din free. Uske baad sirf ₹999/mahina — ek bouquet se bhi sasta, ek helper se 8 guna sasta.</p>
       </div>
 
-      <div class="mt-10 grid sm:grid-cols-2 gap-5 max-w-3xl mx-auto">
-        <!-- Trial -->
-        <div class="bg-white rounded-3xl p-7 border-2 border-ink/5 reveal">
-          <p class="text-[11px] font-bold text-ink/40 tracking-wider">FREE TRIAL</p>
-          <p class="mt-2 text-4xl font-extrabold">₹0</p>
-          <p class="text-[13px] text-ink/50">14 din ke liye</p>
-          <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65">
+      <!-- Monthly / Yearly toggle: one set of plans, two ways to pay. -->
+      <div class="mt-8 flex justify-center reveal">
+        <div class="inline-flex bg-white rounded-full p-1 border-2 border-ink/10">
+          <button id="moBtn" type="button"
+                  class="px-6 py-2.5 rounded-full font-bold text-[14px] transition bg-ink text-white">Monthly</button>
+          <button id="yrBtn" type="button"
+                  class="px-6 py-2.5 rounded-full font-bold text-[14px] transition text-ink/60">
+            Yearly <span class="text-[11px] bg-wa/15 text-waDark px-2 py-0.5 rounded-full ml-1">2 mahine FREE</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Value anchor: the cheapest helper, so the comparison can only
+           under-sell the saving. -->
+      <div class="mt-8 max-w-3xl mx-auto reveal">
+        <div class="bg-wa/8 border-2 border-wa/25 rounded-2xl px-5 py-4 text-center">
+          <p class="text-[13.5px] text-ink/70">
+            Ek helper ₹8,000–₹18,000/mahina leta hai — aur wo bhi sirf 8 ghante, chhutti aur bimaari ke saath.
+          </p>
+          <p class="mt-1.5 text-[13.5px] font-bold text-ink">
+            BudsBox wahi kaam <span class="text-waDark">₹999 se</span> karta hai — 24×7, ek message bhi miss nahi.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-8 grid sm:grid-cols-3 gap-5 max-w-5xl mx-auto">
+        <!-- Starter -->
+        <div class="bg-white rounded-3xl p-7 border-2 border-ink/5 reveal flex flex-col">
+          <p class="text-[11px] font-bold text-ink/40 tracking-wider">STARTER</p>
+          <p class="mt-1 text-[13px] text-ink/50">Naya ya chhota shop</p>
+          <p class="mt-4 text-4xl font-extrabold" data-price data-mo="₹999" data-yr="₹9,990">₹999</p>
+          <p class="text-[13px] text-ink/50" data-per>/month</p>
+          <p class="hidden text-[12px] font-semibold text-waDark bg-wa/10 rounded-lg px-2.5 py-1 mt-2" data-yr-only>
+            Mahine ka sirf <b>₹833</b> · <b>₹1,998</b> bachat
+          </p>
+          <p class="mt-2 text-[12px] font-bold text-waDark bg-wa/10 rounded-lg px-2.5 py-1.5" data-save
+             data-save-mo="Sabse sasta helper (₹8,000) se bhi <b>₹7,001</b>/mahina bachat"
+             data-save-yr="Sabse sasta helper (₹8,000) se bhi <b>₹86,010</b>/saal bachat">Sabse sasta helper (₹8,000) se bhi <b>₹7,001</b>/mahina bachat</p>
+          <p class="mt-3 text-[13px] font-semibold text-brandDark bg-brand/8 rounded-lg px-3 py-2">
+            Har mahine <b>1,500</b> AI replies
+          </p>
+          <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65 flex-1">
+            <li class="flex gap-2"><span class="text-wa">✓</span> Unlimited customers + orders</li>
             <li class="flex gap-2"><span class="text-wa">✓</span> AI order parsing + auto reply</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> Catalog + chat inbox</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> Booking dashboard</li>
-            <li class="flex gap-2"><span class="text-wa">✓</span> No card needed</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Hindi, Hinglish, English — customer ki bhasha me</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Apna WhatsApp number connect</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Catalog + chat inbox + dashboard</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Apna UPI QR — paise pehle, delivery baad me</li>
           </ul>
-          <a href="/app?start=1" class="mt-6 w-full block text-center bg-ink/5 hover:bg-ink/10 font-bold py-3 rounded-xl transition">Start Free Trial</a>
+          <a href="/app?start=1"
+                  class="mt-6 w-full block text-center bg-ink/5 hover:bg-ink/10 font-bold py-3 rounded-xl transition">
+            Start Free Trial
+          </a>
         </div>
 
-        <!-- Pro -->
-        <div class="relative bg-ink text-white rounded-3xl p-7 shadow-soft overflow-hidden reveal">
+        <!-- Growth (recommended) -->
+        <div class="relative bg-ink text-white rounded-3xl p-7 shadow-soft overflow-hidden reveal flex flex-col sm:-mt-3 sm:mb-3">
           <div class="absolute -top-16 -right-16 w-48 h-48 bg-brand/30 rounded-full blur-2xl"></div>
-          <div class="relative">
+          <div class="relative flex flex-col h-full">
             <div class="flex items-center justify-between">
-              <p class="text-[11px] font-bold text-brand tracking-wider">PRO MONTHLY</p>
-              <span class="bg-wa text-white text-[10px] font-bold px-2.5 py-1 rounded-full">POPULAR</span>
+              <p class="text-[11px] font-bold text-brand tracking-wider">GROWTH</p>
+              <span class="bg-wa text-white text-[10px] font-bold px-2.5 py-1 rounded-full">SABSE POPULAR</span>
             </div>
-            <p class="mt-2 text-4xl font-extrabold">₹599<span class="text-base font-medium text-white/40">/mo</span></p>
-            <p class="text-[13px] text-white/50">Har 30 din me renew</p>
-            <ul class="mt-5 space-y-2.5 text-[13px] text-white/70">
-              <li class="flex gap-2"><span class="text-wa">✓</span> Sab kuch trial wala, unlimited</li>
-              <li class="flex gap-2"><span class="text-wa">✓</span> Unlimited customers + orders</li>
+            <p class="mt-1 text-[13px] text-white/50">Roz orders aate hain</p>
+            <p class="mt-4 text-4xl font-extrabold" data-price data-mo="₹1,999" data-yr="₹19,990">₹1,999</p>
+            <p class="text-[13px] text-white/50" data-per>/month</p>
+            <p class="hidden text-[12px] font-semibold text-white bg-wa/25 rounded-lg px-2.5 py-1 mt-2" data-yr-only>
+              Mahine ka sirf <b>₹1,666</b> · <b>₹3,998</b> bachat
+            </p>
+            <p class="mt-2 text-[12px] font-bold text-white bg-wa/25 rounded-lg px-2.5 py-1.5" data-save
+               data-save-mo="Sabse sasta helper (₹8,000) se bhi <b>₹6,001</b>/mahina bachat"
+               data-save-yr="Sabse sasta helper (₹8,000) se bhi <b>₹76,010</b>/saal bachat">Sabse sasta helper (₹8,000) se bhi <b>₹6,001</b>/mahina bachat</p>
+            <p class="mt-3 text-[13px] font-semibold text-brand bg-brand/15 rounded-lg px-3 py-2">
+              Har mahine <b>4,000</b> AI replies
+            </p>
+            <ul class="mt-5 space-y-2.5 text-[13px] text-white/70 flex-1">
+              <li class="flex gap-2"><span class="text-wa">✓</span> Sab kuch Starter wala</li>
+              <li class="flex gap-2"><span class="text-wa">✓</span> 4,000 AI replies — 2.6× Starter</li>
+              <li class="flex gap-2"><span class="text-wa">✓</span> Auto-pay — ek baar approve, phir apne aap</li>
+              <li class="flex gap-2"><span class="text-wa">✓</span> Roz ke orders ke liye — busy din bhi sambhalta hai</li>
               <li class="flex gap-2"><span class="text-wa">✓</span> Priority support</li>
-              <li class="flex gap-2"><span class="text-wa">✓</span> 30 din extension per payment</li>
             </ul>
             <a href="/app?start=1"
                     class="mt-6 w-full block text-center bg-brand hover:bg-brandDark font-bold py-3 rounded-xl transition active:scale-95">
-              Pay ₹599 to Continue
+              Start Free Trial
             </a>
           </div>
         </div>
+
+        <!-- Pro -->
+        <div class="bg-white rounded-3xl p-7 border-2 border-brand/30 reveal flex flex-col">
+          <p class="text-[11px] font-bold text-brand tracking-wider">PRO</p>
+          <p class="mt-1 text-[13px] text-ink/50">Bhara hua, busy shop</p>
+          <p class="mt-4 text-4xl font-extrabold" data-price data-mo="₹3,999" data-yr="₹39,990">₹3,999</p>
+          <p class="text-[13px] text-ink/50" data-per>/month</p>
+          <p class="hidden text-[12px] font-semibold text-waDark bg-wa/10 rounded-lg px-2.5 py-1 mt-2" data-yr-only>
+            Mahine ka sirf <b>₹3,333</b> · <b>₹7,998</b> bachat
+          </p>
+          <p class="mt-2 text-[12px] font-bold text-waDark bg-wa/10 rounded-lg px-2.5 py-1.5" data-save
+             data-save-mo="Sabse sasta helper (₹8,000) se bhi <b>₹4,001</b>/mahina bachat"
+             data-save-yr="Sabse sasta helper (₹8,000) se bhi <b>₹56,010</b>/saal bachat">Sabse sasta helper (₹8,000) se bhi <b>₹4,001</b>/mahina bachat</p>
+          <p class="mt-3 text-[13px] font-semibold text-brandDark bg-brand/8 rounded-lg px-3 py-2">
+            Har mahine <b>10,000</b> AI replies
+          </p>
+          <ul class="mt-5 space-y-2.5 text-[13px] text-ink/65 flex-1">
+            <li class="flex gap-2"><span class="text-wa">✓</span> Sab kuch Growth wala</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> 10,000 AI replies — 6.7× Starter</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Festival aur shaadi season — rush bhi handle</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Bade catalog ke liye — hazaron items</li>
+            <li class="flex gap-2"><span class="text-wa">✓</span> Priority support</li>
+          </ul>
+          <a href="/app?start=1"
+                  class="mt-6 w-full block text-center bg-brandDark hover:bg-ink font-bold py-3 rounded-xl transition active:scale-95 text-white">
+            Start Free Trial
+          </a>
+        </div>
       </div>
+
+      <p class="mt-6 text-center text-[12.5px] font-semibold text-ink/60">
+        Sab kuch included — koi setup fee nahi, koi hidden charge nahi, koi per-order commission nahi.
+      </p>
+      <p class="mt-2 text-center text-[12px] text-ink/45 max-w-2xl mx-auto">
+        Har plan me AI replies ki apni limit hai. Limit khatam hone ke baad bhi aapka number kabhi chup nahi hota —
+        customer ko reply milta rehta hai, bas AI ki jagah smart matching chalti hai. Yearly lene par 2 mahine muft.
+      </p>
     </div>
   </div>
 
@@ -362,12 +469,36 @@
     <div class="mt-8 space-y-3">
       <details class="faq bg-white rounded-2xl shadow-card border border-ink/5 reveal">
         <summary class="px-5 py-4 flex items-center justify-between font-bold text-[14.5px]">
+          Customer 15 din pehle advance booking kar sakta hai?
+          <span class="chev text-ink/40">▾</span>
+        </summary>
+        <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
+          Haan. Customer "15 tarikh", "10 August" ya "kal shaam 6 baje" likhe — app exact din aur time pakad leta hai
+          (India ke calendar ke hisaab se) aur order usi din ke liye book ho jata hai. Delivery se ek din pehle
+          reminder bhi chala jata hai, aur wahi order dashboard par banner me dikhta hai.
+        </p>
+      </details>
+
+      <details class="faq bg-white rounded-2xl shadow-card border border-ink/5 reveal">
+        <summary class="px-5 py-4 flex items-center justify-between font-bold text-[14.5px]">
+          Naya order aane par mujhe kaise pata chalega? Email chahiye?
+          <span class="chev text-ink/40">▾</span>
+        </summary>
+        <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
+          Koi email, koi account, koi extra kharcha nahi. Order aate hi dashboard par <b>badge</b> dikhta hai aur
+          aapki apni ringtone <b>bajti hai</b>. Dashboard khula rakhna kaafi hai — bell turant bajegi. Chahein to
+          sound mute kar sakte ho (ek click, choice yaad rehti hai).
+        </p>
+      </details>
+
+      <details class="faq bg-white rounded-2xl shadow-card border border-ink/5 reveal">
+        <summary class="px-5 py-4 flex items-center justify-between font-bold text-[14.5px]">
           Mera personal WhatsApp number lagana padega?
           <span class="chev text-ink/40">▾</span>
         </summary>
         <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
           Behtar hai shop ke liye alag number use karo. Aap apna normal WhatsApp alag rakh sakte ho — BudsBox sirf us
-          number ko use karta hai jo aap Meta Cloud API me jodte ho.
+          number ko use karta hai jo aap dashboard me jodte ho, aur wahi number customer ko dikhta hai.
         </p>
       </details>
 
@@ -377,8 +508,9 @@
           <span class="chev text-ink/40">▾</span>
         </summary>
         <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
-          Nahi. Dashboard ke WhatsApp tab me Phone number ID aur token paste karke "Save &amp; connect" dabao.
-          Kabhi band karna ho to wahi "Disconnect" button — ek click, turant AI ruk jata hai.
+          Nahi. Dashboard ke WhatsApp tab me "Connect with Facebook" dabao — Facebook se login karke apna shop ka
+          number chun lein, ho gaya. Koi technical cheez copy karne ki zaroorat nahi. Band karna ho to wahi
+          "Disconnect" button — ek click, turant AI ruk jata hai.
         </p>
       </details>
 
@@ -394,12 +526,25 @@
 
       <details class="faq bg-white rounded-2xl shadow-card border border-ink/5 reveal">
         <summary class="px-5 py-4 flex items-center justify-between font-bold text-[14.5px]">
+          Itna sasta kaise? Koi catch to nahi?
+          <span class="chev text-ink/40">▾</span>
+        </summary>
+        <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
+          Koi catch nahi. Ek helper ₹8,000–₹18,000/mahina leta hai — aur wo bhi sirf 8 ghante, chhutti aur bimaari
+          ke saath. BudsBox 24×7 chalta hai, ek message bhi miss nahi karta. Sabse sasta helper (₹8,000) maan lo,
+          to bhi ₹4,001 se ₹7,001/mahina bach jate hain. Koi setup fee nahi, koi hidden charge nahi, koi
+          per-order commission nahi.
+        </p>
+      </details>
+
+      <details class="faq bg-white rounded-2xl shadow-card border border-ink/5 reveal">
+        <summary class="px-5 py-4 flex items-center justify-between font-bold text-[14.5px]">
           Trial khatam hone par kya hota hai?
           <span class="chev text-ink/40">▾</span>
         </summary>
         <p class="px-5 pb-5 text-[13.5px] text-ink/60 leading-relaxed">
-          14 din baad number auto-disconnect ho jata hai aur orders ruk jate hain — aapka data safe rehta hai.
-          ₹599 pay karte hi 30 din ke liye sab wapas chalu.
+          Trial khatam hone par AI reply karna band kar deta hai aur naye orders ruk jate hain — aapka data aur
+          juda hua number safe rehta hai. ₹999 pay karte hi wahi number turant chalu, 30 din ke liye.
         </p>
       </details>
     </div>
@@ -434,8 +579,10 @@
         <span class="text-[11px] text-ink/40">· India</span>
       </div>
       <div class="flex items-center gap-5 text-[11px] text-ink/40">
+        <a href="/privacy" class="hover:text-ink/70">Privacy</a>
+        <a href="/terms" class="hover:text-ink/70">Terms</a>
+        <a href="/refund" class="hover:text-ink/70">Refunds</a>
         <a href="/app" class="hover:text-ink/70">Shop login</a>
-        <a href="/admin" class="hover:text-ink/70">Operator</a>
         <a href="/api/health" class="hover:text-ink/70">Status</a>
       </div>
     </div>
@@ -450,6 +597,33 @@
     for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
   }, { threshold: 0.12 });
   document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  // One set of plans, two ways to pay. Switching the toggle rewrites every
+  // price from its own data-mo / data-yr, so the cards never disagree.
+  const moBtn = document.getElementById('moBtn');
+  const yrBtn = document.getElementById('yrBtn');
+  function showBilling(period) {
+    const yearly = period === 'yearly';
+    document.querySelectorAll('[data-price]').forEach((el) => {
+      el.textContent = yearly ? el.dataset.yr : el.dataset.mo;
+    });
+    document.querySelectorAll('[data-per]').forEach((el) => {
+      el.textContent = yearly ? '/year' : '/month';
+    });
+    // The "per month, and how much you save" line only makes sense on yearly.
+    document.querySelectorAll('[data-yr-only]').forEach((el) => {
+      el.classList.toggle('hidden', !yearly);
+    });
+    // What a helper would cost, against what this plan costs — the value line
+    // swaps between its monthly and yearly wording with the toggle.
+    document.querySelectorAll('[data-save]').forEach((el) => {
+      el.innerHTML = yearly ? el.dataset.saveYr : el.dataset.saveMo;
+    });
+    moBtn.className = `px-6 py-2.5 rounded-full font-bold text-[14px] transition ${yearly ? 'text-ink/60' : 'bg-ink text-white'}`;
+    yrBtn.className = `px-6 py-2.5 rounded-full font-bold text-[14px] transition ${yearly ? 'bg-ink text-white' : 'text-ink/60'}`;
+  }
+  moBtn.onclick = () => showBilling('monthly');
+  yrBtn.onclick = () => showBilling('yearly');
 </script>
 
 </body>

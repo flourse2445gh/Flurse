@@ -31,8 +31,8 @@ function cookieFrom(res) {
   return cookie ? cookie.split(';')[0] : null;
 }
 
-async function api(path, { method = 'GET', body, cookie } = {}) {
-  const headers = {};
+async function api(path, { method = 'GET', body, cookie, headers: extra = {} } = {}) {
+  const headers = { ...extra };
   if (body) headers['Content-Type'] = 'application/json';
   if (cookie) headers.Cookie = cookie;
   const res = await fetch(`${BASE}${path}`, {
@@ -43,7 +43,7 @@ async function api(path, { method = 'GET', body, cookie } = {}) {
   const text = await res.text();
   let json;
   try { json = JSON.parse(text); } catch { json = text; }
-  return { status: res.status, body: json, cookie: cookieFrom(res) };
+  return { status: res.status, body: json, headers: res.headers, cookie: cookieFrom(res) };
 }
 
 function signedWebhook(payload) {
@@ -192,6 +192,149 @@ test('dashboard requires a session', async () => {
   assert.equal(status, 401);
 });
 
+test('a forgotten password can be reset with the emailed link, once', async () => {
+  // No mail provider in tests, so the link is logged. Reach into the store to
+  // mint the same token the mail would carry, then drive the real endpoints.
+  const before = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  assert.equal(before.status, 200);
+
+  // The ask always answers the same, whether or not the email exists.
+  const known = await api('/api/auth?action=forgot', {
+    method: 'POST', body: { email: 'owner@test.cafe' },
+  });
+  const unknown = await api('/api/auth?action=forgot', {
+    method: 'POST', body: { email: 'ghost@nowhere.test' },
+  });
+  assert.equal(known.status, 200);
+  assert.equal(unknown.status, 200);
+  assert.equal(known.body.ok, unknown.body.ok);
+  // With no provider key in tests, the app must not claim mail is on its way.
+  assert.equal(known.body.emailReady, false);
+
+  // Only the hash is stored — the raw token never touches the database.
+  const rows = await query(
+    `SELECT pr.token_hash FROM password_resets pr
+       JOIN users u ON u.id = pr.user_id
+      WHERE lower(u.email) = 'owner@test.cafe' AND pr.used_at IS NULL`,
+  );
+  assert.equal(rows.rows.length, 1, 'a reset row was created');
+  assert.match(rows.rows[0].token_hash, /^[a-f0-9]{64}$/, 'only a sha-256 hash is stored');
+
+  // Mint a fresh token we know, the way the mail link carries it.
+  const { createPasswordReset } = await import('../lib/auth.js');
+  const user = await query("SELECT id, tenant_id FROM users WHERE lower(email) = 'owner@test.cafe'");
+  const { token } = await createPasswordReset(user.rows[0].id, user.rows[0].tenant_id);
+
+  // A weak password is refused without spending the token.
+  const weak = await api('/api/auth?action=reset', {
+    method: 'POST', body: { token, password: 'short' },
+  });
+  assert.equal(weak.status, 400);
+
+  const done = await api('/api/auth?action=reset', {
+    method: 'POST', body: { token, password: 'brand-new-pass-1' },
+  });
+  assert.equal(done.status, 200);
+
+  // The old password is dead, the new one works.
+  const oldPass = await api('/api/auth?action=login', {
+    method: 'POST', body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  assert.equal(oldPass.status, 401);
+  const newPass = await api('/api/auth?action=login', {
+    method: 'POST', body: { email: 'owner@test.cafe', password: 'brand-new-pass-1' },
+  });
+  assert.equal(newPass.status, 200);
+
+  // The same link cannot be replayed.
+  const replay = await api('/api/auth?action=reset', {
+    method: 'POST', body: { token, password: 'another-pass-22' },
+  });
+  assert.equal(replay.status, 400);
+
+  // A reset also logs out sessions that were opened with the old password.
+  const stale = await api('/api/dashboard', { cookie: before.cookie });
+  assert.equal(stale.status, 401, 'the pre-reset session was dropped');
+
+  // Put the known password back so later tests keep logging in with it.
+  const { hashPassword } = await import('../lib/auth.js');
+  await query(
+    `UPDATE users SET password_hash = $1 WHERE lower(email) = 'owner@test.cafe'`,
+    [hashPassword('supersecret123')],
+  );
+});
+
+test('login and reset requests are rate limited per address', async () => {
+  // Clear anything the earlier tests left, so this one owns its window. The
+  // cleanup runs even if an assertion fails, otherwise the counters this test
+  // fills would lock the account for every later test.
+  const wipe = () => query("DELETE FROM rate_limits WHERE key LIKE 'login:%' OR key LIKE 'forgot:%'");
+  await wipe();
+  try {
+    // 11 wrong guesses against one account from one address: the last is refused.
+    let last;
+    for (let i = 0; i < 11; i += 1) {
+      last = await api('/api/auth?action=login', {
+        method: 'POST', headers: { 'x-forwarded-for': '203.0.113.9' },
+        body: { email: 'owner@test.cafe', password: 'definitely-wrong' },
+      });
+    }
+    assert.equal(last.status, 429, 'guessing a password gets cut off');
+    assert.ok(Number(last.headers.get('retry-after') ?? 0) >= 1, 'the wait is told to the client');
+
+    // That account is now locked for any address, which is the point — an
+    // attacker cannot dodge the limit by switching IPs to hit one account.
+    const sameAccount = await api('/api/auth?action=login', {
+      method: 'POST', headers: { 'x-forwarded-for': '203.0.113.10' },
+      body: { email: 'owner@test.cafe', password: 'supersecret123' },
+    });
+    assert.equal(sameAccount.status, 429);
+
+    // A fresh address hitting a different account is not caught by the first
+    // window — it gets a plain 401, not a 429.
+    await wipe();
+    const fresh = await api('/api/auth?action=login', {
+      method: 'POST', headers: { 'x-forwarded-for': '203.0.113.11' },
+      body: { email: 'someone@else.test', password: 'whatever-123' },
+    });
+    assert.equal(fresh.status, 401);
+
+    // Forgot is capped per address too, so it cannot be used to spray mail.
+    let forgot;
+    for (let i = 0; i < 6; i += 1) {
+      forgot = await api('/api/auth?action=forgot', {
+        method: 'POST', headers: { 'x-forwarded-for': '203.0.113.12' },
+        body: { email: 'owner@test.cafe' },
+      });
+    }
+    assert.equal(forgot.status, 429);
+  } finally {
+    await wipe();
+  }
+});
+
+test('an expired reset link is refused', async () => {
+  const { createPasswordReset } = await import('../lib/auth.js');
+  const user = await query("SELECT id, tenant_id FROM users WHERE lower(email) = 'owner@test.cafe'");
+  const { token } = await createPasswordReset(user.rows[0].id, user.rows[0].tenant_id);
+  // Age the row past its window.
+  await query(
+    `UPDATE password_resets SET expires_at = now() - interval '1 minute' WHERE used_at IS NULL`,
+  );
+  const res = await api('/api/auth?action=reset', {
+    method: 'POST', body: { token, password: 'whatever-pass-9' },
+  });
+  assert.equal(res.status, 400);
+  // And the still-valid password is untouched.
+  const login = await api('/api/auth?action=login', {
+    method: 'POST', body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  assert.equal(login.status, 200);
+});
+
 test('webhook rejects a request with no or a bad signature', async () => {
   const unsigned = await fetch(`${BASE}/api/webhook`, {
     method: 'POST',
@@ -215,6 +358,90 @@ test('webhook verification handshake echoes the challenge only for the right tok
 
   const bad = await fetch(`${BASE}/api/webhook?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=ABC`);
   assert.equal(bad.status, 403);
+});
+
+// The owner ended the partnership from their own WhatsApp Business app. Meta
+// fires account_update / PARTNER_REMOVED; we must drop the credentials so the
+// dashboard stops claiming a connection that is gone.
+test('a PARTNER_REMOVED webhook clears the shop that left', async () => {
+  await query(
+    `UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc',
+            wa_waba_id = 'WABA-LEAVE', wa_display_number = '+91 90000 00001'
+      WHERE slug = 'test-cafe'`,
+  );
+
+  const payload = {
+    object: 'whatsapp_business_account',
+    entry: [{ id: '2949482758682047', time: 1748477359, changes: [{
+      field: 'account_update',
+      value: {
+        event: 'PARTNER_REMOVED',
+        waba_info: { waba_id: 'WABA-LEAVE', owner_business_id: '2329417887457253' },
+        disconnection_info: { reason: 'USER_INITIATED', initiated_by: 'CLIENT' },
+      },
+    }] }],
+  };
+  const { raw, sig } = signedWebhook(payload);
+  const res = await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+  assert.equal(res.status, 200);
+
+  const { rows } = await query(
+    `SELECT wa_phone_number_id, wa_access_token, wa_waba_id, wa_display_number,
+            disconnect_reason
+       FROM tenants WHERE slug = 'test-cafe'`,
+  );
+  assert.equal(rows[0].wa_phone_number_id, null, 'the number is cleared');
+  assert.equal(rows[0].wa_access_token, null, 'the token is cleared');
+  assert.equal(rows[0].wa_waba_id, null);
+  assert.equal(rows[0].wa_display_number, null);
+  assert.equal(rows[0].disconnect_reason, 'client_disconnected');
+
+  // And the dashboard now says "not connected", instead of failing sends.
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const wa = await api('/api/whatsapp', { cookie: login.cookie });
+  assert.equal(wa.body.connected, false);
+});
+
+// Other account_update events are not ours to act on: they must leave a live
+// connection untouched.
+test('an unrelated account_update leaves the connection alone', async () => {
+  await query(
+    `UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc',
+            wa_waba_id = 'WABA-KEEP'
+      WHERE slug = 'test-cafe'`,
+  );
+
+  const payload = {
+    object: 'whatsapp_business_account',
+    entry: [{ id: '2949482758682047', time: 1748477359, changes: [{
+      field: 'account_update',
+      value: {
+        event: 'ACCOUNT_RESTRICTION',
+        waba_info: { waba_id: 'WABA-KEEP' },
+        restriction_info: [{ restriction_type: 'RESTRICTED_BIZ_INITIATED_MESSAGING' }],
+      },
+    }] }],
+  };
+  const { raw, sig } = signedWebhook(payload);
+  const res = await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+  assert.equal(res.status, 200);
+
+  const { rows } = await query(
+    "SELECT wa_phone_number_id, wa_access_token FROM tenants WHERE slug = 'test-cafe'",
+  );
+  assert.equal(rows[0].wa_phone_number_id, 'PHONE1', 'the number survives');
+  assert.equal(rows[0].wa_access_token, 'token-abc', 'the token survives');
 });
 
 test('a signed inbound message becomes an order and is idempotent on retry', async () => {
@@ -358,7 +585,8 @@ test('the trial cron suspends expired trials and revokes the access token', asyn
     "SELECT status, wa_access_token, wa_phone_number_id, disconnect_reason FROM tenants WHERE slug = 'test-cafe'",
   );
   assert.equal(rows[0].status, 'suspended');
-  assert.equal(rows[0].wa_access_token, null, 'access token must be revoked');
+  assert.equal(rows[0].wa_access_token, 'token-abc',
+    'the token is kept, so a payment resumes the number without a new Meta signup');
   assert.equal(rows[0].wa_phone_number_id, 'PHONE1', 'phone number id is kept for re-upgrade');
   assert.equal(rows[0].disconnect_reason, 'trial_expired');
 });
@@ -410,14 +638,33 @@ test('upgrading reactivates a suspended tenant', async () => {
 
   const plans = await api('/api/payments', { cookie: login.cookie });
   assert.equal(plans.status, 200);
-  // Only one plan is sold, and the landing page advertises exactly this price.
-  // A second plan here would be an advertised-nowhere dead entry again.
-  assert.deepEqual(plans.body.plans.map((p) => p.id), ['starter']);
-  assert.equal(plans.body.plans[0].priceCents, 59900);
+  // Six plans are sold (three tiers × monthly/yearly) and the landing page
+  // advertises exactly these prices. A plan here that the page does not show
+  // would be a dead entry again.
+  assert.deepEqual(
+    plans.body.plans.map((p) => p.id),
+    ['starter_monthly', 'growth_monthly', 'pro_monthly',
+     'starter_yearly', 'growth_yearly', 'pro_yearly'],
+  );
+  assert.deepEqual(
+    plans.body.plans.map((p) => p.priceCents),
+    [99900, 199900, 399900, 999000, 1999000, 3999000],
+  );
+  const [s, g, pr] = plans.body.plans;
+  assert.equal(s.aiReplies, 1500, 'fair use is advertised');
+  assert.equal(g.aiReplies, 4000, 'Growth carries a bigger allowance');
+  assert.equal(pr.aiReplies, 10000, 'Pro carries the biggest allowance');
+  // Yearly is ten months' price, so two months are free on every tier.
+  assert.equal(plans.body.plans[3].priceCents, s.priceCents * 10);
+  assert.equal(plans.body.plans[4].priceCents, g.priceCents * 10);
+  assert.equal(plans.body.plans[5].priceCents, pr.priceCents * 10);
+  // Only the monthly plans can be charged again by Razorpay.
+  assert.deepEqual(plans.body.plans.filter((p) => p.recurring).map((p) => p.id),
+    ['starter_monthly', 'growth_monthly', 'pro_monthly']);
 
   const upgrade = await api('/api/payments?action=upgrade', {
     method: 'POST',
-    body: { plan: 'starter' },
+    body: { plan: 'starter_monthly' },
     cookie: login.cookie,
   });
   assert.equal(upgrade.status, 200);
@@ -425,6 +672,31 @@ test('upgrading reactivates a suspended tenant', async () => {
 
   const read = await api('/api/dashboard', { cookie: login.cookie });
   assert.equal(read.body.tenant.status, 'active');
+});
+
+test('the landing page savings figures match the plans it sells', async () => {
+  // The cards carry a helper-vs-plan saving, computed from the cheapest helper
+  // (₹8,000/mahina). The figure is arithmetic, not a claim, so it must move
+  // with the prices — a stale number here would be a lie on the page.
+  const HELPER = 8000;
+  const inr = (n) => `₹${n.toLocaleString('en-IN')}`;
+  const html = await readFile(join(root, 'public', 'index.html'), 'utf8');
+  const tiers = [
+    { mo: 999, yr: 9990 },   // Starter
+    { mo: 1999, yr: 19990 }, // Growth
+    { mo: 3999, yr: 39990 }, // Pro
+  ];
+  for (const t of tiers) {
+    const moLine = `Sabse sasta helper (₹8,000) se bhi <b>${inr(HELPER - t.mo)}</b>/mahina bachat`;
+    const yrLine = `Sabse sasta helper (₹8,000) se bhi <b>${inr(HELPER * 12 - t.yr)}</b>/saal bachat`;
+    assert.ok(html.includes(moLine), `monthly saving shown: ${moLine}`);
+    assert.ok(html.includes(yrLine), `yearly saving shown: ${yrLine}`);
+  }
+  // The per-month line on a yearly card is the yearly price spread over the
+  // twelve months it covers, e.g. ₹9,990/12 = ₹833.
+  for (const t of tiers) {
+    assert.ok(html.includes(`Mahine ka sirf <b>${inr(Math.round(t.yr / 12))}</b>`), `per-month for ${inr(t.yr)}`);
+  }
 });
 
 test('the admin view is secret-gated and reports cross-tenant stats', async () => {
@@ -492,7 +764,29 @@ test('the catalog is tenant-scoped', async () => {
   });
   await api('/api/products', { method: 'POST', body: { name: 'Only Mine', price: 100 }, cookie: a.cookie });
   const other = await api('/api/products', { cookie: b.cookie });
-  assert.equal(other.body.products.length, 0, 'a shop must not see another shop catalog');
+  assert.ok(
+    !other.body.products.some((p) => p.name === 'Only Mine'),
+    'a shop must not see another shop catalog',
+  );
+});
+
+test('a new shop starts with a starter catalog it can order from', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@rival.cafe', password: 'supersecret456' },
+  });
+  const { body } = await api('/api/products', { cookie: login.cookie });
+  assert.ok(body.products.length >= 5, 'the shop has items on day one');
+  assert.ok(body.products.every((p) => p.is_sample === true), 'the seeded items are marked as samples');
+
+  // Editing an item makes it the owner's own, so the "sample price" nudge goes.
+  const item = body.products[0];
+  const saved = await api('/api/products', {
+    method: 'POST',
+    body: { id: item.id, name: item.name, price: item.price_cents / 100 },
+    cookie: login.cookie,
+  });
+  assert.equal(saved.body.product.is_sample, false, 'editing clears the sample flag');
 });
 
 test('a shop connects and disconnects its WhatsApp number', async () => {
@@ -501,6 +795,12 @@ test('a shop connects and disconnects its WhatsApp number', async () => {
     body: { email: 'owner@test.cafe', password: 'supersecret123' },
   });
   const cookie = login.cookie;
+
+  // Start from a shop with no token, so "not connected" is the shop's own state
+  // and not a side effect of whatever ran before.
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = NULL WHERE slug = 'test-cafe'",
+  );
 
   const before = await api('/api/whatsapp', { cookie });
   assert.equal(before.body.connected, false, 'no access token yet, so not connected');
@@ -531,6 +831,150 @@ test('a shop connects and disconnects its WhatsApp number', async () => {
   assert.equal(off.status, 200);
   const after = await api('/api/whatsapp', { cookie });
   assert.equal(after.body.connected, false);
+});
+
+// A shop that is leaving wants its number back for the normal WhatsApp app.
+// Deregister is the half Meta offers over the API; the delete that frees the
+// number has no endpoint, so the reply says whether Meta was actually reached.
+test('releasing a number deregisters it with Meta and clears the connection', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const cookie = login.cookie;
+
+  await query(
+    `UPDATE tenants SET wa_phone_number_id = 'PHONE-RELEASE', wa_access_token = 'token-rel',
+            wa_waba_id = 'WABA-1', wa_display_number = '+91 90000 00000',
+            wa_on_biz_app = false
+      WHERE slug = 'test-cafe'`,
+  );
+
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      calls.push({ url: String(url), method: opts?.method });
+      return new Response(JSON.stringify({ success: true }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const out = await api('/api/whatsapp?action=release', { method: 'POST', cookie });
+    assert.equal(out.status, 200);
+    assert.equal(out.body.connected, false);
+    assert.equal(out.body.metaReleased, true, 'Meta was reached');
+
+    const dereg = calls.find((c) => c.url.endsWith('/PHONE-RELEASE/deregister'));
+    assert.ok(dereg, 'the deregister endpoint was called');
+    assert.equal(dereg.method, 'POST');
+
+    const { rows } = await query(
+      `SELECT wa_phone_number_id, wa_access_token, wa_waba_id, wa_display_number
+         FROM tenants WHERE slug = 'test-cafe'`,
+    );
+    assert.equal(rows[0].wa_phone_number_id, null, 'the number id is cleared');
+    assert.equal(rows[0].wa_access_token, null, 'the token is cleared');
+    assert.equal(rows[0].wa_waba_id, null);
+    assert.equal(rows[0].wa_display_number, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// The owner must not be trapped by a Meta hiccup: a failed deregister still
+// clears the local side and tells the truth about what Meta saw.
+test('a failed deregister still clears the connection and reports it', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const cookie = login.cookie;
+
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE-RELEASE2', wa_access_token = 'token-rel2' WHERE slug = 'test-cafe'",
+  );
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      return new Response(JSON.stringify({ error: { message: 'Invalid token' } }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const out = await api('/api/whatsapp?action=release', { method: 'POST', cookie });
+    assert.equal(out.status, 200);
+    assert.equal(out.body.metaReleased, false, 'the failure is reported');
+    const { rows } = await query(
+      "SELECT wa_phone_number_id, wa_access_token FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(rows[0].wa_phone_number_id, null, 'the owner still gets out');
+    assert.equal(rows[0].wa_access_token, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('releasing with nothing connected is refused', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = NULL, wa_access_token = NULL WHERE slug = 'test-cafe'",
+  );
+  const out = await api('/api/whatsapp?action=release', { method: 'POST', cookie: login.cookie });
+  assert.equal(out.status, 400);
+});
+
+// A coexistence number (still usable in the owner's WhatsApp Business app) must
+// not be deregistered: Meta refuses that call while the number is shared, and
+// the owner frees it from their own app instead. The reply says so, so the
+// dashboard can show the one-tap route rather than WhatsApp Manager.
+test('releasing a coexistence number skips Meta and says so', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const cookie = login.cookie;
+
+  await query(
+    `UPDATE tenants SET wa_phone_number_id = 'PHONE-COEX', wa_access_token = 'token-coex',
+            wa_on_biz_app = true WHERE slug = 'test-cafe'`,
+  );
+
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ success: true }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const out = await api('/api/whatsapp?action=release', { method: 'POST', cookie });
+    assert.equal(out.status, 200);
+    assert.equal(out.body.onBizApp, true, 'the dashboard is told which route to show');
+    assert.equal(out.body.metaReleased, true);
+    assert.equal(calls.length, 0, 'Meta is not called for a coexistence number');
+
+    const { rows } = await query(
+      "SELECT wa_phone_number_id, wa_access_token, wa_on_biz_app FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(rows[0].wa_phone_number_id, null);
+    assert.equal(rows[0].wa_access_token, null);
+    assert.equal(rows[0].wa_on_biz_app, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 test('embedded signup exchanges the code and subscribes the account', async () => {
@@ -567,7 +1011,14 @@ test('embedded signup exchanges the code and subscribes the account', async () =
     }
     if (u.includes('/subscribed_apps')) return reply({ success: true });
     if (u.includes('/PN-ES')) {
-      return reply({ display_phone_number: '+91 90000 11111', verified_name: 'Test Cafe' });
+      return reply({
+        display_phone_number: '+91 90000 11111',
+        verified_name: 'Test Cafe',
+        // The owner onboarded with their WhatsApp Business app, so Meta says
+        // the number stays usable in that app too.
+        is_on_biz_app: true,
+        platform_type: 'CLOUD_API',
+      });
     }
     return reply({});
   };
@@ -580,18 +1031,21 @@ test('embedded signup exchanges the code and subscribes the account', async () =
     assert.equal(done.status, 200);
     assert.equal(done.body.connected, true);
     assert.equal(done.body.displayNumber, '+91 90000 11111');
+    assert.equal(done.body.onBizApp, true, 'coexistence is recorded from Meta');
 
     assert.equal(calls.length, 3, 'exchange, subscribe, then look up the number');
     assert.ok(calls[0].u.includes('/oauth/access_token'));
     assert.ok(calls[1].u.includes('/WABA-ES/subscribed_apps'));
     assert.equal(calls[1].method, 'POST');
     assert.ok(calls[2].u.includes('/PN-ES'));
+    assert.ok(calls[2].u.includes('is_on_biz_app'), 'the coexistence field is asked for');
 
     // The token the code bought is what gets stored, and it never reaches the
     // browser in any response body.
     const status = await api('/api/whatsapp', { cookie: login.cookie });
     assert.equal(status.body.connected, true);
     assert.equal(status.body.displayNumber, '+91 90000 11111');
+    assert.equal(status.body.onBizApp, true, 'and it is read back to the dashboard');
     assert.equal(status.body.hasAccessToken, true);
     assert.equal(status.body.embeddedSignup.available, true);
     assert.equal(status.body.embeddedSignup.configId, 'config-e2e');
@@ -602,6 +1056,202 @@ test('embedded signup exchanges the code and subscribes the account', async () =
       if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
     }
   }
+});
+
+test('embedded signup stores when the token expires', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const saved = { ...process.env };
+  process.env.WHATSAPP_APP_ID = 'app-e2e';
+  process.env.WHATSAPP_APP_SECRET = 'secret-e2e';
+  process.env.WHATSAPP_ES_CONFIG_ID = 'config-e2e';
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (!u.includes('graph.facebook.com')) return realFetch(url, opts);
+    const reply = (body) => new Response(JSON.stringify(body), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+    if (u.includes('/oauth/access_token')) {
+      return reply({ access_token: 'EAAG-expiry', expires_in: 60 * 24 * 60 * 60 });
+    }
+    if (u.includes('/subscribed_apps')) return reply({ success: true });
+    return reply({ display_phone_number: '+91 90000 22222', verified_name: 'Test Cafe' });
+  };
+
+  try {
+    const done = await api('/api/whatsapp?action=embedded-signup', {
+      method: 'POST', cookie: login.cookie,
+      body: { code: 'C2', phone_number_id: 'PHONE-EXP', waba_id: 'WABA-EXP' },
+    });
+    assert.equal(done.status, 200);
+
+    // ~60 days from now, stored on the tenant so the dashboard can warn first.
+    const { rows } = await query(
+      "SELECT wa_token_expires_at FROM tenants WHERE slug = 'test-cafe'",
+    );
+    const days = (new Date(rows[0].wa_token_expires_at).getTime() - Date.now()) / 86400000;
+    assert.ok(days > 59 && days <= 60, `expiry should be ~60 days out, got ${days}`);
+
+    const status = await api('/api/whatsapp', { cookie: login.cookie });
+    assert.ok(status.body.tokenExpiresAt, 'the expiry is reported to the dashboard');
+    assert.equal(status.body.alert, null, 'a fresh 60-day token raises no alert');
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of ['WHATSAPP_APP_ID', 'WHATSAPP_APP_SECRET', 'WHATSAPP_ES_CONFIG_ID']) {
+      if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    }
+  }
+});
+
+test('a token about to expire is flagged, and a dead token is a hard alert', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  // Five days left: warn, but not an error.
+  await query(
+    "UPDATE tenants SET wa_access_token = 'tok', wa_phone_number_id = 'PHONE1', wa_token_expires_at = now() + interval '5 days' WHERE slug = 'test-cafe'",
+  );
+  const warn = await api('/api/whatsapp', { cookie: login.cookie });
+  assert.equal(warn.body.alert.kind, 'token_expiring');
+  assert.equal(warn.body.alert.level, 'warning');
+
+  const dashWarn = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(dashWarn.body.tenant.waAlert.kind, 'token_expiring', 'the dashboard shows the same warning');
+
+  // Already expired: the shop cannot send, so it is an error.
+  await query(
+    "UPDATE tenants SET wa_token_expires_at = now() - interval '1 hour' WHERE slug = 'test-cafe'",
+  );
+  const dead = await api('/api/whatsapp', { cookie: login.cookie });
+  assert.equal(dead.body.alert.kind, 'token_expired');
+  assert.equal(dead.body.alert.level, 'error');
+
+  // A rejected token (Meta 401) is an error even before the clock runs out.
+  await query(
+    "UPDATE tenants SET wa_token_expires_at = now() + interval '40 days', wa_last_error_kind = 'token' WHERE slug = 'test-cafe'",
+  );
+  const rejected = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(rejected.body.tenant.waAlert.kind, 'token_dead');
+  assert.equal(rejected.body.tenant.waAlert.level, 'error');
+
+  // A healthy connection clears the banner entirely.
+  await query(
+    "UPDATE tenants SET wa_token_expires_at = now() + interval '40 days', wa_last_error_kind = NULL WHERE slug = 'test-cafe'",
+  );
+  const healthy = await api('/api/whatsapp', { cookie: login.cookie });
+  assert.equal(healthy.body.alert, null);
+});
+
+test('a failed WhatsApp send is recorded so the shop is told', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active', wa_last_error_kind = NULL, wa_token_expires_at = now() + interval '40 days' WHERE slug = 'test-cafe'",
+  );
+
+  // Meta answers with a rejected token.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      return new Response(JSON.stringify({ error: { code: 190, message: 'Invalid OAuth access token' } }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const payload = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550002222', text: '2 roses', id: 'wamid.FAIL1',
+    });
+    const { raw, sig } = signedWebhook(payload);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+      body: raw,
+    });
+
+    const { rows } = await query(
+      "SELECT wa_last_error_kind, wa_last_error FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(rows[0].wa_last_error_kind, 'token', 'a 401 is classified as a dead token');
+    assert.match(rows[0].wa_last_error, /401/);
+
+    // The dashboard now shows the hard alert, without anyone reading the logs.
+    const dash = await api('/api/dashboard', { cookie: login.cookie });
+    assert.equal(dash.body.tenant.waAlert.kind, 'token_dead');
+    assert.equal(dash.body.tenant.waAlert.level, 'error');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a successful send clears the failure flag', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active', wa_last_error = 'old', wa_last_error_kind = 'token' WHERE slug = 'test-cafe'",
+  );
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.OK' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const payload = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550003333', text: 'hello', id: 'wamid.OK1',
+    });
+    const { raw, sig } = signedWebhook(payload);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+      body: raw,
+    });
+
+    const { rows } = await query(
+      "SELECT wa_last_error, wa_last_error_kind FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(rows[0].wa_last_error, null, 'a working send clears the recorded failure');
+    assert.equal(rows[0].wa_last_error_kind, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('the cron reports tokens that are about to expire', async () => {
+  await query(
+    "UPDATE tenants SET wa_access_token = 'tok', wa_phone_number_id = 'PHONE1', status = 'active', trial_ends_at = now() + interval '10 days', wa_token_expires_at = now() + interval '3 days' WHERE slug = 'test-cafe'",
+  );
+  const run = await fetch(`${BASE}/api/cron/trial`, {
+    headers: { Authorization: 'Bearer test-cron-secret' },
+  });
+  assert.equal(run.status, 200);
+  const body = await run.json();
+  assert.ok(body.expiringTokens.includes('test-cafe'), 'the expiring shop is listed');
+  assert.equal(body.suspended, 0, 'a healthy shop is not suspended by the token watch');
+
+  await query(
+    "UPDATE tenants SET wa_token_expires_at = now() + interval '40 days' WHERE slug = 'test-cafe'",
+  );
+  const clear = await fetch(`${BASE}/api/cron/trial`, {
+    headers: { Authorization: 'Bearer test-cron-secret' },
+  });
+  const cleared = await clear.json();
+  assert.equal(cleared.expiringTokens.includes('test-cafe'), false, 'a distant expiry is not reported');
 });
 
 test('conversations expose threads and record manual replies', async () => {
@@ -667,6 +1317,63 @@ test('the operator can suspend, activate and export shops', async () => {
   const text = await csv.text();
   assert.match(text.split('\n')[0], /^shop,slug,owner,status/);
   assert.match(text, /test-cafe/);
+});
+
+// The operator has the same release power as the shop, so a shop that has gone
+// quiet can have its number freed without the owner doing anything.
+test('the operator can release a shop\'s number from Meta', async () => {
+  const auth = { Authorization: 'Bearer test-admin-secret' };
+
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE-OPREL', wa_access_token = 'token-oprel' WHERE slug = 'rival-cafe'",
+  );
+
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      calls.push({ url: String(url), method: opts?.method });
+      return new Response(JSON.stringify({ success: true }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const res = await fetch(`${BASE}/api/admin?action=release`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: 'rival-cafe' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.metaReleased, true);
+    assert.ok(calls.some((c) => c.url.endsWith('/PHONE-OPREL/deregister')), 'Meta was told');
+
+    const { rows } = await query(
+      "SELECT wa_phone_number_id, wa_access_token FROM tenants WHERE slug = 'rival-cafe'",
+    );
+    assert.equal(rows[0].wa_phone_number_id, null);
+    assert.equal(rows[0].wa_access_token, null);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// An operator release on a shop that has no number must not pretend to reach
+// Meta; it clears nothing and says so.
+test('the operator release is a no-op on a shop with no number', async () => {
+  const auth = { Authorization: 'Bearer test-admin-secret' };
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = NULL, wa_access_token = NULL WHERE slug = 'rival-cafe'",
+  );
+  const res = await fetch(`${BASE}/api/admin?action=release`, {
+    method: 'POST',
+    headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug: 'rival-cafe' }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).metaReleased, false);
 });
 
 test('logout invalidates the session', async () => {
@@ -1041,6 +1748,62 @@ test('shop profile settings round-trip and are tenant scoped', async () => {
   assert.equal(cleared.body.settings.shop_address, null, 'blank clears the field');
 });
 
+test('the preview answers a profile question for free, and a real question with the model', async () => {
+  await query(
+    "UPDATE tenants SET shop_address = '12 Gandhi Road, Koramangala', shop_hours = '8am-9pm daily', shop_delivery = 'Free in Koramangala, 3 hours' WHERE slug = 'test-cafe'",
+  );
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'preview-key';
+  try {
+    // A profile question is answered with no model call at all.
+    const free = await api('/api/shop?preview', {
+      method: 'POST', cookie: login.cookie,
+      body: { message: 'aap kahan ho?' },
+    });
+    assert.equal(free.status, 200);
+    assert.equal(free.body.source, 'free');
+    assert.match(free.body.reply, /Gandhi Road/);
+    assert.equal(fake.seen.length, 0, 'the preview did not call a provider for a profile question');
+
+    // A real question that the profile cannot answer still reaches the model.
+    const en = await api('/api/shop?preview', {
+      method: 'POST', cookie: login.cookie,
+      body: { message: 'Hi, do you have red roses?' },
+    });
+    assert.equal(en.status, 200);
+    assert.equal(en.body.source, 'llm:groq');
+    assert.match(en.body.reply, /roses are available/);
+    assert.deepEqual(en.body.providers, ['groq']);
+
+    const hi = await api('/api/shop?preview', {
+      method: 'POST', cookie: login.cookie,
+      body: { message: 'क्या गुलाब है?' },
+    });
+    assert.equal(hi.body.language, 'hi');
+    assert.match(hi.body.reply, /गुलाब/);
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+    // Leave no profile fields behind: a later test asks "are you open today?"
+    // and expects the model to answer it.
+    await query(
+      "UPDATE tenants SET shop_address = NULL, shop_hours = NULL, shop_delivery = NULL WHERE slug = 'test-cafe'",
+    );
+  }
+
+  const anon = await api('/api/shop?preview', { method: 'POST', body: { message: 'hi' } });
+  assert.equal(anon.status, 401);
+});
+
 test('the reply preview mirrors the customer language using a live provider', async () => {
   const fake = startFakeProvider();
   await new Promise((r) => fake.server.listen(0, r));
@@ -1130,8 +1893,32 @@ test('a relative delivery time is resolved to India time without the model', asy
 
   // The day is the Indian one, so compare in IST and not in UTC.
   const istDay = (iso) => new Date(new Date(iso).getTime() + 5.5 * 3600 * 1000).getUTCDate();
+  const istMonth = (iso) => new Date(new Date(iso).getTime() + 5.5 * 3600 * 1000).getUTCMonth();
   assert.equal(istDay(guessDeliveryAt('kal subah 9 baje', now)), 11, '"kal" is the next day');
   assert.equal(istDay(guessDeliveryAt('parso 5 baje', now)), 12, '"parso" is two days out');
+
+  // A bare date number is a day, never an hour. "15 tarikh" must not become 3pm.
+  const fifteenth = guessDeliveryAt('15 tarikh ko chahiye', now);
+  assert.equal(istDay(fifteenth), 15, '"15 tarikh" is the 15th');
+  assert.equal(istMonth(fifteenth), 2, 'and still March');
+  assert.equal(new Date(fifteenth).getUTCHours(), 5, 'with a default morning hour, not 3pm');
+
+  assert.equal(istDay(guessDeliveryAt('20 tarikh subah 10 baje chahiye', now)), 20, 'day and time together');
+  assert.equal(new Date(guessDeliveryAt('20 tarikh subah 10 baje chahiye', now)).getUTCHours(), 4, '10am IST is 4:30 UTC');
+
+  // A day already gone this month rolls to the next month.
+  const rolled = guessDeliveryAt('8 tarikh tak chahiye', now);
+  assert.equal(istMonth(rolled), 3, 'the 8th has passed, so it is next month');
+  assert.equal(istDay(rolled), 8);
+
+  // A named month is honoured, and a month already past rolls to next year.
+  assert.equal(istMonth(guessDeliveryAt('15 August ko chahiye', now)), 7, 'August is month 8');
+  assert.equal(istDay(guessDeliveryAt('august 15 chahiye', now)), 15, 'month-first also works');
+  assert.equal(istMonth(guessDeliveryAt('5 January ko', now)), 0, 'a past month rolls to next year');
+
+  // A vague window names no exact day, so nothing is stored and the flow asks.
+  assert.equal(guessDeliveryAt('agle hafte chahiye', now), null, 'no exact day, no date');
+  assert.equal(guessDeliveryAt('next week chahiye', now), null);
 });
 
 test('delivery details from the thread land on the order', async () => {
@@ -1421,6 +2208,155 @@ test('asking how to pay sends the shop QR and never spends an AI call', async ()
   }
 });
 
+// -- free replies ----------------------------------------------------------
+
+// A price, address, timing or delivery question is answered from the shop's own
+// catalog and profile with no model call, so the shop pays nothing for the
+// questions that make up most of its day.
+test('a profile question is answered for free, with no AI call', async () => {
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active', shop_address = '12 Gandhi Road, Koramangala', shop_hours = '8am-9pm daily', shop_delivery = 'Free in Koramangala, 3 hours' WHERE slug = 'test-cafe'",
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'free-key';
+
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.SENT' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  const { createOrderFromMessage } = await import('../lib/orders.js');
+  const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+  const tenant = t[0];
+
+  try {
+    const cases = [
+      ['aap kahan ho?', /Gandhi Road/],
+      ['timing kya hai?', /8am-9pm/],
+      ['delivery karte ho?', /Koramangala/],
+    ];
+    for (const [i, [text, expect]] of cases.entries()) {
+      const out = await createOrderFromMessage({
+        tenant,
+        message: { from: `9190000${i}`, displayName: 'Q', text, waMessageId: `wam_free_${i}` },
+      });
+      assert.ok(out, `answered: ${text}`);
+      assert.equal(out.replySource, 'free', `"${text}" is answered without a model`);
+      assert.match(out.reply, expect);
+    }
+    assert.equal(fake.seen.length, 0, 'no AI provider was called for any of the profile questions');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+    await query(
+      "UPDATE tenants SET shop_address = NULL, shop_hours = NULL, shop_delivery = NULL WHERE slug = 'test-cafe'",
+    );
+  }
+});
+
+// The one that matters most for cost: a price question is answered from the
+// catalog, and the item the customer named is priced back to them, all for free.
+test('a price question is answered from the catalog, with no AI call', async () => {
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'price-key';
+  try {
+    const { createOrderFromMessage } = await import('../lib/orders.js');
+    const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+    const tenant = t[0];
+
+    const out = await createOrderFromMessage({
+      tenant,
+      message: { from: '91900009999', displayName: 'Buyer', text: 'Latte ka price kya hai?', waMessageId: 'wam_free_price' },
+    });
+    assert.ok(out);
+    assert.equal(out.replySource, 'free', 'a price question does not reach the model');
+    assert.match(out.reply, /Latte/);
+    assert.match(out.reply, /₹/);
+    assert.equal(fake.seen.length, 0, 'no AI provider was called');
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
+// A question the shop has no answer written down for must still reach the model,
+// so a missing field never turns into a wrong or empty reply.
+test('a question the profile cannot answer still goes to the model', async () => {
+  await query(
+    "UPDATE tenants SET shop_address = NULL, shop_hours = NULL, shop_delivery = NULL, wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'fall-key';
+  try {
+    const { createOrderFromMessage } = await import('../lib/orders.js');
+    const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+    const tenant = t[0];
+
+    const out = await createOrderFromMessage({
+      tenant,
+      message: { from: '91900008888', displayName: 'Asker', text: 'aap kahan ho?', waMessageId: 'wam_free_fall' },
+    });
+    assert.ok(out);
+    assert.ok(String(out.replySource).startsWith('llm:'), `the model took over (got ${out.replySource})`);
+    assert.ok(fake.seen.length > 0, 'the provider was called when the profile had no address');
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
+// A normal order message is not a question, so the free path leaves it alone and
+// the model drafts the order reply as before.
+test('an order message is not intercepted by the free path', async () => {
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'order-key';
+  try {
+    const { createOrderFromMessage } = await import('../lib/orders.js');
+    const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+    const tenant = t[0];
+
+    const out = await createOrderFromMessage({
+      tenant,
+      message: { from: '91900007777', displayName: 'Orderer', text: '2 latte bhej do', waMessageId: 'wam_free_order' },
+    });
+    assert.ok(out);
+    assert.ok(String(out.replySource).startsWith('llm:'), `an order is drafted by the model (got ${out.replySource})`);
+    assert.ok(out.order, 'the order is still created');
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
 // -- razorpay --------------------------------------------------------------
 
 test('checkout is refused until Razorpay keys exist, then creates an order', async () => {
@@ -1430,7 +2366,7 @@ test('checkout is refused until Razorpay keys exist, then creates an order', asy
   });
 
   const before = await api('/api/payments?action=checkout', {
-    method: 'POST', cookie: login.cookie, body: { plan: 'starter' },
+    method: 'POST', cookie: login.cookie, body: { plan: 'starter_monthly' },
   });
   assert.equal(before.status, 503, 'no keys, no checkout');
   assert.equal(before.body.error, 'Payments are not configured yet');
@@ -1452,12 +2388,12 @@ test('checkout is refused until Razorpay keys exist, then creates an order', asy
 
   try {
     const checkout = await api('/api/payments?action=checkout', {
-      method: 'POST', cookie: login.cookie, body: { plan: 'starter' },
+      method: 'POST', cookie: login.cookie, body: { plan: 'starter_monthly' },
     });
     assert.equal(checkout.status, 200);
     assert.equal(checkout.body.orderId, 'order_E2E1');
-    assert.equal(checkout.body.amount, 59900, 'amount is sent in paise');
-    assert.equal(sentBody.amount, 59900);
+    assert.equal(checkout.body.amount, 99900, 'amount is sent in paise');
+    assert.equal(sentBody.amount, 99900);
     assert.equal(sentBody.currency, 'INR');
     assert.equal(checkout.body.keyId, 'rzp_test_e2e');
 
@@ -1478,7 +2414,7 @@ test('a tampered payment cannot activate a shop, a signed one can', async () => 
   );
   await query(
     `INSERT INTO payments (tenant_id, plan, amount_cents, razorpay_order_id)
-     SELECT id, 'starter', 59900, 'order_E2E2' FROM tenants WHERE slug = 'test-cafe'`,
+     SELECT id, 'starter_monthly', 99900, 'order_E2E2' FROM tenants WHERE slug = 'test-cafe'`,
   );
 
   const saved = { ...process.env };
@@ -1534,13 +2470,105 @@ test('a tampered payment cannot activate a shop, a signed one can', async () => 
   }
 });
 
+test('a shop that pays after its trial lapses gets its number working again', async () => {
+  // The whole promise, end to end: a connected shop lapses, is suspended by the
+  // cron, then pays and must be able to send again — without redoing Meta
+  // signup. This is the test that was missing: activation used to restore
+  // `active` while the token had been thrown away, so a paying shop answered
+  // nobody.
+  await query(
+    `UPDATE tenants SET status = 'trialing', trial_ends_at = now() - interval '1 minute',
+        wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc',
+        wa_token_expires_at = now() + interval '30 days', paid_until = NULL
+      WHERE slug = 'test-cafe'`,
+  );
+
+  const cron = await fetch(`${BASE}/api/cron/trial`, {
+    headers: { Authorization: 'Bearer test-cron-secret' },
+  });
+  assert.equal(cron.status, 200);
+
+  const lapsed = await query(
+    "SELECT status, wa_access_token FROM tenants WHERE slug = 'test-cafe'",
+  );
+  assert.equal(lapsed.rows[0].status, 'suspended');
+
+  // While suspended, an inbound message still creates no order — the status
+  // gate, not a missing token, is what stops the shop replying.
+  const quiet = await query('SELECT COUNT(*)::int AS n FROM orders');
+  const payload = inboundPayload({
+    phoneNumberId: 'PHONE1', from: '15550002222', text: '2 roses', id: 'wamid.LAPSED',
+  });
+  const { raw, sig } = signedWebhook(payload);
+  await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+  const stillQuiet = await query('SELECT COUNT(*)::int AS n FROM orders');
+  assert.equal(stillQuiet.rows[0].n, quiet.rows[0].n, 'a suspended shop creates no order');
+
+  // The owner pays.
+  await query(
+    `INSERT INTO payments (tenant_id, plan, amount_cents, razorpay_order_id)
+     SELECT id, 'starter_monthly', 99900, 'order_E2E_REACTIVATE' FROM tenants WHERE slug = 'test-cafe'`,
+  );
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  try {
+    const login = await api('/api/auth?action=login', {
+      method: 'POST',
+      body: { email: 'owner@test.cafe', password: 'supersecret123' },
+    });
+    const signature = crypto.createHmac('sha256', 'e2e-secret')
+      .update('order_E2E_REACTIVATE|pay_E2E_REACTIVATE').digest('hex');
+    const paid = await api('/api/payments?action=verify', {
+      method: 'POST', cookie: login.cookie,
+      body: {
+        razorpay_order_id: 'order_E2E_REACTIVATE',
+        razorpay_payment_id: 'pay_E2E_REACTIVATE',
+        razorpay_signature: signature,
+      },
+    });
+    assert.equal(paid.status, 200);
+
+    const revived = await query(
+      "SELECT status, wa_access_token, wa_phone_number_id, paid_until FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(revived.rows[0].status, 'active');
+    assert.ok(revived.rows[0].paid_until, 'the paid period is set');
+    assert.equal(revived.rows[0].wa_access_token, 'token-abc',
+      'the number is still connected, so the shop can send the moment it pays');
+    assert.equal(revived.rows[0].wa_phone_number_id, 'PHONE1');
+
+    // And it really does answer again: a catalog message now becomes an order
+    // instead of being dropped as tenant_inactive.
+    const revive = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550002222', text: '3 lattes', id: 'wamid.REVIVED',
+    });
+    const signed = signedWebhook(revive);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': signed.sig },
+      body: signed.raw,
+    });
+    const revivedOrders = await query(
+      "SELECT COUNT(*)::int AS n FROM orders WHERE wa_message_id = 'wamid.REVIVED'",
+    );
+    assert.equal(revivedOrders.rows[0].n, 1, 'the paid shop takes orders again');
+  } finally {
+    process.env = saved;
+  }
+});
+
 test('the webhook activates a shop only when Razorpay confirms the payment', async () => {
   await query(
     "UPDATE tenants SET status = 'suspended', wa_access_token = NULL, paid_until = NULL WHERE slug = 'test-cafe'",
   );
   await query(
     `INSERT INTO payments (tenant_id, plan, amount_cents, razorpay_order_id)
-     SELECT id, 'starter', 59900, 'order_E2E3' FROM tenants WHERE slug = 'test-cafe'`,
+     SELECT id, 'starter_monthly', 99900, 'order_E2E3' FROM tenants WHERE slug = 'test-cafe'`,
   );
 
   const saved = { ...process.env };
@@ -1553,7 +2581,7 @@ test('the webhook activates a shop only when Razorpay confirms the payment', asy
   });
 
   // Razorpay says the payment is captured, for our order and our amount.
-  const capture = { status: 'captured', order_id: 'order_E2E3', amount: 59900 };
+  const capture = { status: 'captured', order_id: 'order_E2E3', amount: 99900 };
   globalThis.fetch = async (url, opts) => {
     const u = String(url);
     if (u.includes('api.razorpay.com/v1/payments/')) {
@@ -1591,7 +2619,7 @@ test('the webhook activates a shop only when Razorpay confirms the payment', asy
 
     const tenant = await query("SELECT status, plan, paid_until FROM tenants WHERE slug = 'test-cafe'");
     assert.equal(tenant.rows[0].status, 'active');
-    assert.equal(tenant.rows[0].plan, 'starter');
+    assert.equal(tenant.rows[0].plan, 'starter_monthly');
     assert.ok(tenant.rows[0].paid_until, 'the paid period is set');
 
     // A payment that is not captured yet is ignored.
@@ -1622,7 +2650,7 @@ test('the webhook activates a shop only when Razorpay confirms the payment', asy
 
 test('a lapsed paid period is suspended by the cron, a live one is not', async () => {
   await query(
-    `UPDATE tenants SET status = 'active', plan = 'starter',
+    `UPDATE tenants SET status = 'active', plan = 'starter_monthly',
        paid_until = now() + interval '5 days' WHERE slug = 'test-cafe'`,
   );
   const kept = await expireTrials();
@@ -1636,4 +2664,951 @@ test('a lapsed paid period is suspended by the cron, a live one is not', async (
   const after = await query("SELECT status, disconnect_reason FROM tenants WHERE slug = 'test-cafe'");
   assert.equal(after.rows[0].status, 'suspended');
   assert.equal(after.rows[0].disconnect_reason, 'subscription_expired');
+});
+
+// -- auto-renewal ----------------------------------------------------------
+
+test('subscribe opens a monthly mandate and records it against the shop', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (u.includes('api.razorpay.com')) {
+      calls.push({ method: opts.method ?? 'GET', url: u, body: opts.body ? JSON.parse(opts.body) : null });
+      if (u.includes('/plans?') && (opts.method ?? 'GET') === 'GET') {
+        return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (u.endsWith('/plans')) {
+        return new Response(JSON.stringify({ id: 'plan_E2E' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (u.endsWith('/subscriptions')) {
+        return new Response(JSON.stringify({ id: 'sub_E2E1', status: 'created' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const res = await api('/api/payments?action=subscribe', {
+      method: 'POST', cookie: login.cookie, body: { plan: 'starter_monthly' },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.subscriptionId, 'sub_E2E1');
+    assert.equal(res.body.amount, 99900, 'the mandate is for the plan price in paise');
+
+    // The plan is created once, monthly, for the right amount.
+    const plan = calls.find((c) => c.url.endsWith('/plans'));
+    assert.ok(plan, 'a plan was created');
+    assert.equal(plan.body.period, 'monthly');
+    assert.equal(plan.body.item.amount, 99900);
+    assert.equal(plan.body.item.currency, 'INR');
+
+    const sub = calls.find((c) => c.url.endsWith('/subscriptions'));
+    assert.equal(sub.body.plan_id, 'plan_E2E');
+    assert.equal(sub.body.total_count, 120);
+
+    // The shop and the row both remember the mandate.
+    const row = await query(
+      "SELECT s.status, t.razorpay_subscription_id FROM subscriptions s JOIN tenants t ON t.id = s.tenant_id WHERE s.razorpay_subscription_id = 'sub_E2E1'",
+    );
+    assert.equal(row.rows.length, 1);
+    assert.equal(row.rows[0].status, 'created');
+    assert.equal(row.rows[0].razorpay_subscription_id, 'sub_E2E1');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('a renewal charge extends the paid period without the operator doing anything', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', paid_until = now() + interval '2 days' WHERE slug = 'test-cafe'",
+  );
+  await query(
+    "UPDATE subscriptions SET status = 'active' WHERE razorpay_subscription_id = 'sub_E2E1'",
+  );
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  const end = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('api.razorpay.com/v1/subscriptions/')) {
+      return new Response(JSON.stringify({ id: 'sub_E2E1', status: 'active', current_end: end }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const before = await query("SELECT paid_until FROM tenants WHERE slug = 'test-cafe'");
+    const res = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'subscription.charged',
+        payload: { subscription: { entity: { id: 'sub_E2E1' } } },
+      }),
+    });
+    assert.equal(res.status, 200);
+
+    const after = await query("SELECT status, paid_until FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(after.rows[0].status, 'active');
+    assert.ok(
+      new Date(after.rows[0].paid_until).getTime() > new Date(before.rows[0].paid_until).getTime(),
+      'the paid period moved forward',
+    );
+    assert.equal(
+      new Date(after.rows[0].paid_until).getTime(),
+      end * 1000,
+      'paid_until matches the period Razorpay charged for',
+    );
+
+    // An unknown subscription settles nothing.
+    const unknown = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'subscription.charged',
+        payload: { subscription: { entity: { id: 'sub_NOPE' } } },
+      }),
+    });
+    assert.equal(unknown.status, 200);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('a halted mandate suspends the shop instead of serving it free', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', wa_access_token = 'tok' WHERE slug = 'test-cafe'",
+  );
+  await query(
+    "UPDATE subscriptions SET status = 'active' WHERE razorpay_subscription_id = 'sub_E2E1'",
+  );
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('api.razorpay.com/v1/subscriptions/')) {
+      // Razorpay is the one that says the mandate is dead.
+      return new Response(JSON.stringify({ id: 'sub_E2E1', status: 'halted' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const res = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'subscription.halted',
+        payload: { subscription: { entity: { id: 'sub_E2E1' } } },
+      }),
+    });
+    assert.equal(res.status, 200);
+
+    const tenant = await query(
+      "SELECT status, wa_access_token, disconnect_reason FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(tenant.rows[0].status, 'suspended');
+    assert.equal(tenant.rows[0].wa_access_token, 'tok',
+      'the token is kept so a payment can revive the number');
+    assert.equal(tenant.rows[0].disconnect_reason, 'subscription_halted');
+
+    const sub = await query(
+      "SELECT status FROM subscriptions WHERE razorpay_subscription_id = 'sub_E2E1'",
+    );
+    assert.equal(sub.rows[0].status, 'halted');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('a forged halt body cannot suspend a healthy shop', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', wa_access_token = 'tok' WHERE slug = 'test-cafe'",
+  );
+  await query(
+    "UPDATE subscriptions SET status = 'active' WHERE razorpay_subscription_id = 'sub_E2E1'",
+  );
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('api.razorpay.com/v1/subscriptions/')) {
+      // Razorpay still reports the mandate as active, so the body was a lie.
+      return new Response(JSON.stringify({ id: 'sub_E2E1', status: 'active' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const res = await fetch(`${BASE}/api/payments?action=webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'subscription.halted',
+        payload: { subscription: { entity: { id: 'sub_E2E1' } } },
+      }),
+    });
+    assert.equal(res.status, 200);
+    const tenant = await query(
+      "SELECT status, wa_access_token FROM tenants WHERE slug = 'test-cafe'",
+    );
+    assert.equal(tenant.rows[0].status, 'active', 'a healthy shop is left alone');
+    assert.equal(tenant.rows[0].wa_access_token, 'tok', 'the number stays connected');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('the dashboard reports an active mandate so the owner can see auto-pay', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', paid_until = now() + interval '20 days' WHERE slug = 'test-cafe'",
+  );
+  await query(
+    "UPDATE subscriptions SET status = 'active', current_end = now() + interval '20 days' WHERE razorpay_subscription_id = 'sub_E2E1'",
+  );
+
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const res = await api('/api/payments', { cookie: login.cookie });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.current.autoRenew, 'auto-renew is reported');
+  assert.equal(res.body.current.autoRenew.subscriptionId, 'sub_E2E1');
+});
+
+// -- yearly + fair use -----------------------------------------------------
+
+test('the yearly plan is a one-time payment that buys a year', async () => {
+  await query(
+    "UPDATE tenants SET status = 'suspended', paid_until = NULL WHERE slug = 'test-cafe'",
+  );
+
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  const realFetch = globalThis.fetch;
+  let sentBody = null;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('api.razorpay.com')) {
+      sentBody = JSON.parse(opts.body);
+      return new Response(JSON.stringify({ id: 'order_YR1', amount: sentBody.amount }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const login = await api('/api/auth?action=login', {
+      method: 'POST',
+      body: { email: 'owner@test.cafe', password: 'supersecret123' },
+    });
+    const checkout = await api('/api/payments?action=checkout', {
+      method: 'POST', cookie: login.cookie, body: { plan: 'starter_yearly' },
+    });
+    assert.equal(checkout.status, 200);
+    assert.equal(sentBody.amount, 999000, 'the year is charged in paise');
+
+    // Settling it sets the paid period a year out, not a month.
+    const signature = crypto.createHmac('sha256', 'e2e-secret')
+      .update('order_YR1|pay_YR1').digest('hex');
+    const ok = await api('/api/payments?action=verify', {
+      method: 'POST', cookie: login.cookie,
+      body: { razorpay_order_id: 'order_YR1', razorpay_payment_id: 'pay_YR1', razorpay_signature: signature },
+    });
+    assert.equal(ok.status, 200);
+    const tenant = await query("SELECT status, plan, paid_until FROM tenants WHERE slug = 'test-cafe'");
+    assert.equal(tenant.rows[0].status, 'active');
+    assert.equal(tenant.rows[0].plan, 'starter_yearly');
+    const days = (new Date(tenant.rows[0].paid_until).getTime() - Date.now()) / 86400000;
+    assert.ok(days > 360, `a year is paid for (got ${Math.round(days)} days)`);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+});
+
+test('the yearly plan cannot be opened as a monthly subscription', async () => {
+  const saved = { ...process.env };
+  process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
+  process.env.RAZORPAY_KEY_SECRET = 'e2e-secret';
+  try {
+    const login = await api('/api/auth?action=login', {
+      method: 'POST',
+      body: { email: 'owner@test.cafe', password: 'supersecret123' },
+    });
+    const res = await api('/api/payments?action=subscribe', {
+      method: 'POST', cookie: login.cookie, body: { plan: 'starter_yearly' },
+    });
+    assert.equal(res.status, 400, 'a yearly plan is not recurring');
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('Pro buys a bigger AI allowance than Starter', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', plan = 'pro_monthly', paid_until = now() + interval '20 days' WHERE slug = 'test-cafe'",
+  );
+  const { createOrderFromMessage } = await import('../lib/orders.js');
+  const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+  const tenant = t[0];
+  const { rows: cust } = await query(
+    'SELECT id FROM customers WHERE tenant_id = $1 LIMIT 1', [tenant.id],
+  );
+
+  // 2,000 turns is above Starter's 1,500 allowance but well inside Pro's
+  // 10,000, so a Pro shop is still allowed a model where a Starter would not be.
+  await query('DELETE FROM messages WHERE tenant_id = $1', [tenant.id]);
+  await query(
+    `INSERT INTO messages (tenant_id, customer_id, direction, body, ai_reply)
+     SELECT $1, $2, 'inbound', 'x', true FROM generate_series(1, 2000)`,
+    [tenant.id, cust[0].id],
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const saved = { ...process.env };
+  process.env.GEMINI_BASE_URL = `http://127.0.0.1:${fake.server.address().port}`;
+  process.env.GEMINI_API_KEY = 'pro-key';
+  try {
+    const result = await createOrderFromMessage({
+      tenant,
+      message: { from: '919999900002', displayName: 'Pro Shop', text: '2 red roses chahiye', waMessageId: 'wam_pro_1' },
+    });
+    assert.ok(result, 'the shop answers');
+    assert.ok(fake.seen.length, 'a Pro shop still gets the model after 2,000 replies');
+
+    // The turn is stamped, so it counts against Pro's larger allowance.
+    const { rows: usage } = await query(
+      "SELECT ai_reply FROM messages WHERE wa_message_id = 'wam_pro_1'",
+    );
+    assert.equal(usage[0].ai_reply, true, 'a Pro turn inside the allowance is billed as AI');
+  } finally {
+    process.env = saved;
+    await new Promise((r) => fake.server.close(r));
+  }
+});
+
+test('past the monthly AI allowance the shop still replies, without a model', async () => {
+  await query(
+    "UPDATE tenants SET status = 'active', plan = 'starter_monthly', paid_until = now() + interval '20 days' WHERE slug = 'test-cafe'",
+  );
+  const { createOrderFromMessage } = await import('../lib/orders.js');
+  const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+  const tenant = t[0];
+  const { rows: cust } = await query(
+    'SELECT id FROM customers WHERE tenant_id = $1 LIMIT 1', [tenant.id],
+  );
+
+  // Spend the whole allowance, then one more message arrives.
+  await query('DELETE FROM messages WHERE tenant_id = $1', [tenant.id]);
+  await query(
+    `INSERT INTO messages (tenant_id, customer_id, direction, body, ai_reply)
+     SELECT $1, $2, 'inbound', 'x', true FROM generate_series(1, 2000)`,
+    [tenant.id, cust[0].id],
+  );
+
+  const result = await createOrderFromMessage({
+    tenant,
+    message: { from: '919999900000', displayName: 'Over Limit', text: 'Do you have roses?', waMessageId: 'wam_over_1' },
+  });
+  assert.ok(result, 'the shop still answers');
+  assert.ok(!String(result.replySource).startsWith('llm:'), `no model was called (got ${result.replySource})`);
+  assert.ok(result.reply.length > 0, 'a reply is still produced');
+
+  // And nothing was stamped as an AI reply for this turn.
+  const { rows: stamped } = await query(
+    "SELECT ai_reply FROM messages WHERE wa_message_id = 'wam_over_1'",
+  );
+  assert.equal(stamped[0].ai_reply, false, 'an over-limit turn is not billed as AI');
+});
+
+test('a greeting never spends the AI allowance', async () => {
+  await query('DELETE FROM messages WHERE tenant_id = (SELECT id FROM tenants WHERE slug = $1)', ['test-cafe']);
+  const { createOrderFromMessage } = await import('../lib/orders.js');
+  const { rows: t } = await query("SELECT * FROM tenants WHERE slug = 'test-cafe'");
+  const result = await createOrderFromMessage({
+    tenant: t[0],
+    message: { from: '919999900001', displayName: 'Greeter', text: 'Hi', waMessageId: 'wam_hi_1' },
+  });
+  assert.ok(result);
+  assert.equal(result.replySource, 'greeting', 'a hello is answered with no model');
+  const { rows } = await query("SELECT ai_reply FROM messages WHERE wa_message_id = 'wam_hi_1'");
+  assert.equal(rows[0].ai_reply, false, 'a greeting is free');
+});
+
+// -- owner alerts ----------------------------------------------------------
+
+test('a new order emails the shop owner, once, with what they need to act', async () => {
+  await query("DELETE FROM orders WHERE tenant_id = (SELECT id FROM tenants WHERE slug = 'test-cafe')");
+  process.env.RESEND_API_KEY = 'test-resend-key';
+
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('api.resend.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ id: 'email-1' }), { status: 200 });
+    }
+    if (String(url).includes('graph.facebook.com')) {
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.OUT' }] }), { status: 200 });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const payload = inboundPayload({
+      phoneNumberId: 'PHONE1',
+      from: '15550003333',
+      text: '2 latte bhej do, kal 6 baje, 12 Gandhi Road',
+      id: 'wamid.ALERT1',
+    });
+    const { raw, sig } = signedWebhook(payload);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+      body: raw,
+    });
+    // The email is fired without awaiting the reply path, so let it settle.
+    await new Promise((r) => setTimeout(r, 50));
+
+    assert.equal(sent.length, 1, 'the owner is emailed exactly once for a new order');
+    assert.equal(sent[0].to[0], 'owner@test.cafe');
+    assert.match(sent[0].subject, /Naya order/i);
+    assert.match(sent[0].text, /Latte/);
+
+    // A follow-up that only adds details must not email again.
+    const more = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550003333', text: 'aur ek croissant', id: 'wamid.ALERT2',
+    });
+    const sig2 = signedWebhook(more);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig2.sig },
+      body: sig2.raw,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(sent.length, 2, 'the second order also emails, but nothing double-sends');
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.RESEND_API_KEY;
+  }
+});
+
+test('the dashboard counts unseen orders and clears them once seen', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+
+  // Pretend the owner has never opened the dashboard.
+  await query("UPDATE tenants SET orders_seen_at = NULL WHERE slug = 'test-cafe'");
+  const first = await api('/api/dashboard', { cookie: login.cookie });
+  assert.ok(first.body.tenant.unseenOrders >= 1, 'unseen orders are counted');
+
+  const seen = await api('/api/dashboard?seen=1', { method: 'POST', cookie: login.cookie });
+  assert.equal(seen.status, 200);
+
+  const after = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(after.body.tenant.unseenOrders, 0, 'opening the dashboard clears the badge');
+});
+
+test('an order due tomorrow gets one WhatsApp reminder, and never twice', async () => {
+  await query("UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'");
+  // Only the order this test owns is due; silence any left over from earlier tests.
+  await query("UPDATE orders SET reminder_sent_at = now() WHERE wa_message_id <> 'wamid.ALERT1'");
+  await query("UPDATE orders SET reminder_sent_at = NULL, delivery_at = now() + interval '10 hours', fulfilment = 'delivery' WHERE wa_message_id = 'wamid.ALERT1'");
+  // An inbound message just now keeps the 24-hour window open.
+  await query(
+    `INSERT INTO messages (tenant_id, customer_id, direction, body)
+     SELECT o.tenant_id, o.customer_id, 'inbound', 'haan theek hai'
+       FROM orders o WHERE o.wa_message_id = 'wamid.ALERT1'`,
+  );
+
+  const sends = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sends.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.OUT' }] }), { status: 200 });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const first = await api('/api/cron/trial', { method: 'GET', headers: { Authorization: 'Bearer test-cron-secret' } });
+    assert.equal(first.status, 200);
+    assert.ok(first.body.reminders.sent >= 1, 'the reminder goes out while the window is open');
+    assert.ok(sends.some((m) => /Reminder/.test(m.text?.body || '')), 'a reminder message was sent');
+
+    const again = await api('/api/cron/trial', { method: 'GET', headers: { Authorization: 'Bearer test-cron-secret' } });
+    assert.equal(again.body.reminders.sent, 0, 'a reminder is not sent twice');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a reminder whose WhatsApp window is closed is emailed to the owner instead', async () => {
+  process.env.RESEND_API_KEY = 'test-resend-key';
+  await query("UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'");
+  await query("UPDATE orders SET reminder_sent_at = now() WHERE wa_message_id <> 'wamid.ALERT1'");
+  await query("UPDATE orders SET reminder_sent_at = NULL, delivery_at = now() + interval '10 hours', fulfilment = 'delivery' WHERE wa_message_id = 'wamid.ALERT1'");
+  // No inbound message in the last 24 hours, so the window is shut.
+  await query(
+    `DELETE FROM messages WHERE tenant_id = (SELECT id FROM tenants WHERE slug = 'test-cafe')`,
+  );
+
+  const emails = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('api.resend.com')) {
+      emails.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ id: 'email-2' }), { status: 200 });
+    }
+    if (String(url).includes('graph.facebook.com')) {
+      throw new Error('must not send a free-form message outside the window');
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const res = await api('/api/cron/trial', { method: 'GET', headers: { Authorization: 'Bearer test-cron-secret' } });
+    assert.equal(res.body.reminders.emailed, 1, 'the owner is emailed instead');
+    assert.equal(emails.length, 1);
+    assert.match(emails[0].subject, /delivery/i);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.RESEND_API_KEY;
+  }
+});
+
+test('the dashboard shows deliveries due tomorrow, even with no email key', async () => {
+  // The banner is the reminder that survives when WhatsApp's window is shut and
+  // no mail key is set, so it must come straight from the dashboard with nothing
+  // configured at all.
+  delete process.env.RESEND_API_KEY;
+  const T = "(SELECT id FROM tenants WHERE slug = 'test-cafe')";
+  await query("UPDATE tenants SET status = 'active' WHERE slug = 'test-cafe'");
+  // Park every other order far in the future as a pickup, so only the one order
+  // this test owns can match the "delivery due tomorrow" filter.
+  await query(`UPDATE orders SET delivery_at = now() + interval '5 days', fulfilment = 'pickup' WHERE tenant_id = ${T}`);
+  await query(
+    `UPDATE orders SET delivery_at = now() + interval '1 day', fulfilment = 'delivery',
+            status = 'pending', recipient_name = 'Anita ji'
+      WHERE wa_message_id = 'wamid.ALERT1'`,
+  );
+
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const { body } = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(body.tenant.dueTomorrow.length, 1, 'the one delivery due tomorrow is listed');
+  assert.equal(body.tenant.dueTomorrow[0].recipient, 'Anita ji');
+  assert.equal(typeof body.tenant.dueTomorrow[0].paid, 'boolean');
+});
+
+test('with no email key the dashboard still works, so the bell needs no signup', async () => {
+  // The owner alert is the dashboard badge + bell, which needs no account, no
+  // key and no email. Email is an optional extra; without a key nothing breaks.
+  delete process.env.RESEND_API_KEY;
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query("UPDATE tenants SET orders_seen_at = NULL WHERE slug = 'test-cafe'");
+  const { status, body } = await api('/api/dashboard', { cookie: login.cookie });
+  assert.equal(status, 200);
+  assert.ok(body.tenant.unseenOrders >= 1, 'the badge count works without any email key');
+});
+
+// -- bouquet photos --------------------------------------------------------
+
+// Poll a condition until it holds, because occasion capture and other side
+// effects are fired without blocking the reply the customer waits for.
+async function pollUntil(fn, { tries = 40, wait = 50 } = {}) {
+  for (let i = 0; i < tries; i += 1) {
+    const value = await fn();
+    if (value) return value;
+    await new Promise((r) => setTimeout(r, wait));
+  }
+  return null;
+}
+
+test('a bouquet photo rides along with a price question, with no AI call', async () => {
+  process.env.PUBLIC_BASE_URL = BASE;
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const { rows } = await query(
+    "SELECT id FROM products WHERE tenant_id = (SELECT id FROM tenants WHERE slug = 'test-cafe') AND name = 'Latte'",
+  );
+  const productId = rows[0].id;
+
+  // A non-image is refused, the same rule the payment QR uses.
+  const bad = await api('/api/shop?photo', {
+    method: 'POST', cookie: login.cookie, body: { product_id: productId, image: 'data:text/plain;base64,aGk=' },
+  });
+  assert.equal(bad.status, 400);
+
+  const saved = await api('/api/shop?photo', {
+    method: 'POST', cookie: login.cookie, body: { product_id: productId, image: QR_PNG },
+  });
+  assert.equal(saved.status, 200);
+  assert.match(saved.body.product.imageUrl, /\/api\/shop\?product=[0-9a-f]{32}$/);
+
+  // The browser is told the URL, never the base64 blob.
+  const listed = await api('/api/products', { cookie: login.cookie });
+  const latte = listed.body.products.find((p) => p.id === productId);
+  assert.equal(latte.imageUrl, saved.body.product.imageUrl);
+  assert.equal(latte.image_token, undefined);
+
+  // The picture is served publicly so WhatsApp can fetch it.
+  const img = await fetch(latte.imageUrl);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.equal(Buffer.from(await img.arrayBuffer()).toString('base64'), QR_PNG.split(',')[1]);
+
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const fake = startFakeProvider();
+  await new Promise((r) => fake.server.listen(0, r));
+  const savedEnv = { ...process.env };
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${fake.server.address().port}/v1`;
+  process.env.GROQ_API_KEY = 'photo-key';
+
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.SENT' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const payload = inboundPayload({
+      phoneNumberId: 'PHONE1', from: '15550002222', text: 'Latte ka price kya hai?', id: 'wamid.PHOTO1',
+    });
+    const { raw, sig } = signedWebhook(payload);
+    await fetch(`${BASE}/api/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+      body: raw,
+    });
+
+    assert.equal(sent.length, 1, 'one WhatsApp message is sent');
+    assert.equal(sent[0].type, 'image', 'and it is the bouquet photo');
+    assert.equal(sent[0].image.link, latte.imageUrl);
+    assert.match(sent[0].image.caption, /Latte/);
+    assert.match(sent[0].image.caption, /₹/);
+    assert.equal(fake.seen.length, 0, 'the price answer costs no AI call');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = savedEnv;
+    await new Promise((r) => fake.server.close(r));
+    await api('/api/shop?photo', {
+      method: 'POST', cookie: login.cookie, body: { product_id: productId, image: '' },
+    });
+  }
+});
+
+// -- occasions -------------------------------------------------------------
+
+test('a birthday in a card message is remembered, then surfaced and dismissed', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const tenantId = (await query("SELECT id FROM tenants WHERE slug = 'test-cafe'")).rows[0].id;
+  await query('DELETE FROM customer_occasions WHERE tenant_id = $1', [tenantId]);
+
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+  const payload = inboundPayload({
+    phoneNumberId: 'PHONE1',
+    from: '15550003333',
+    text: 'Happy Birthday Rahul, 15 August ko gulab bhej do',
+    id: 'wamid.OCC1',
+  });
+  const { raw, sig } = signedWebhook(payload);
+  await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+
+  // Capture is fired without blocking the reply, so give it a moment.
+  const occasion = await pollUntil(async () => {
+    const { rows } = await query(
+      "SELECT id, kind, on_date::text AS on_date, note FROM customer_occasions WHERE tenant_id = $1 AND kind = 'birthday'",
+      [tenantId],
+    );
+    return rows[0] ?? null;
+  });
+  assert.ok(occasion, 'the birthday is remembered from the card message');
+  assert.match(occasion.on_date, /-08-15$/, 'the day and month are kept, the year is not');
+  assert.equal(occasion.note, 'Rahul', 'the name on the card is kept for the reminder');
+
+  // Bring the occasion into the five-day window, then it must show on the board.
+  const inTwoDays = new Date(Date.now() + 5.5 * 3600 * 1000 + 2 * 86_400_000)
+    .toISOString().slice(0, 10);
+  await query(
+    'UPDATE customer_occasions SET on_date = $2, reminded_on = NULL WHERE id = $1',
+    [occasion.id, inTwoDays],
+  );
+  const list = await api('/api/dashboard?occasions', { cookie: login.cookie });
+  assert.equal(list.status, 200);
+  const shown = list.body.occasions.find((o) => o.id === occasion.id);
+  assert.ok(shown, 'the upcoming occasion is on the dashboard');
+  assert.equal(shown.daysAway, 2);
+  assert.equal(shown.kind, 'birthday');
+
+  // Dismissing it clears it, so the same birthday is not shown again.
+  const seen = await api('/api/dashboard?occasions-seen', {
+    method: 'POST', cookie: login.cookie, body: { ids: [occasion.id] },
+  });
+  assert.equal(seen.status, 200);
+  const after = await api('/api/dashboard?occasions', { cookie: login.cookie });
+  assert.equal(after.body.occasions.find((o) => o.id === occasion.id), undefined);
+});
+
+test('a message with no date is not remembered as an occasion', async () => {
+  const tenantId = (await query("SELECT id FROM tenants WHERE slug = 'test-cafe'")).rows[0].id;
+  const before = (await query(
+    'SELECT COUNT(*)::int AS n FROM customer_occasions WHERE tenant_id = $1', [tenantId],
+  )).rows[0].n;
+
+  const payload = inboundPayload({
+    phoneNumberId: 'PHONE1',
+    from: '15550004444',
+    text: 'meri mummy ka birthday aa raha hai',
+    id: 'wamid.OCC2',
+  });
+  const { raw, sig } = signedWebhook(payload);
+  await fetch(`${BASE}/api/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig },
+    body: raw,
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  const after = (await query(
+    'SELECT COUNT(*)::int AS n FROM customer_occasions WHERE tenant_id = $1', [tenantId],
+  )).rows[0].n;
+  assert.equal(after, before, 'no date means nothing is remembered');
+});
+
+// -- festival broadcast ----------------------------------------------------
+
+test('a festival broadcast reaches the customers and reports the truth', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+
+  const empty = await api('/api/dashboard?broadcast', {
+    method: 'POST', cookie: login.cookie, body: { message: '   ' },
+  });
+  assert.equal(empty.status, 400);
+
+  const started = await api('/api/dashboard?broadcast', {
+    method: 'POST', cookie: login.cookie,
+    body: { message: 'Diwali dhamaka: saare bouquets par 20% off! 🌸', audience: 'all' },
+  });
+  assert.equal(started.status, 201);
+  assert.ok(started.body.total >= 1, 'there is a customer list to send to');
+  const broadcastId = started.body.broadcast.id;
+
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.BC' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  let result;
+  try {
+    result = await api(`/api/dashboard?broadcast-run=${broadcastId}`, {
+      method: 'POST', cookie: login.cookie,
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(result.status, 200);
+  assert.ok(result.body.sent >= 1, 'at least one customer got the offer');
+  assert.equal(result.body.remaining, 0, 'the whole list is done in one batch here');
+  assert.ok(sent.length >= 1);
+  assert.equal(sent[0].text.body, 'Diwali dhamaka: saare bouquets par 20% off! 🌸');
+
+  const history = await api('/api/dashboard?broadcasts', { cookie: login.cookie });
+  const row = history.body.broadcasts.find((b) => b.id === broadcastId);
+  assert.ok(row, 'the send is in the history');
+  assert.equal(row.status, 'done');
+  assert.equal(row.sent_count, result.body.sent);
+  assert.ok(row.skipped_count >= 0, 'customers outside the 24h window are counted, not hidden');
+});
+
+// -- CRM -------------------------------------------------------------------
+
+test('the customer list shows spend, repeats and the next occasion', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  const { status, body } = await api('/api/conversations?customers', { cookie: login.cookie });
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(body.customers));
+  assert.ok(body.customers.length >= 1, 'the people who have ordered are listed');
+  assert.ok(body.stats.total >= 1);
+
+  const buyer = body.customers.find((c) => c.order_count >= 1);
+  assert.ok(buyer, 'a customer with an order is listed');
+  assert.ok(buyer.spend_cents >= 0);
+  assert.ok('next_occasion' in buyer);
+});
+
+// -- delivered photo -------------------------------------------------------
+
+test('the delivered photo is sent to the customer once, when the order is fulfilled', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+  const tenantId = (await query("SELECT id FROM tenants WHERE slug = 'test-cafe'")).rows[0].id;
+  const { rows: cust } = await query(
+    `INSERT INTO customers (tenant_id, wa_id, display_name)
+     VALUES ($1, '15550005555', 'Delivery Photo Buyer') RETURNING id`,
+    [tenantId],
+  );
+  const { rows: ord } = await query(
+    `INSERT INTO orders (tenant_id, customer_id, total_cents, status, payment_status,
+                         fulfilment, delivery_address, recipient_name)
+     VALUES ($1, $2, 50000, 'pending', 'paid', 'delivery', '12 Gandhi Road', 'Rahul')
+     RETURNING id`,
+    [tenantId, cust[0].id],
+  );
+  const orderId = ord[0].id;
+
+  const upload = await api('/api/shop?delivery-photo', {
+    method: 'POST', cookie: login.cookie, body: { order_id: orderId, image: QR_PNG },
+  });
+  assert.equal(upload.status, 200);
+
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.DP' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+
+  try {
+    const fulfilled = await api(`/api/dashboard?order_id=${orderId}`, {
+      method: 'POST', cookie: login.cookie, body: { status: 'fulfilled' },
+    });
+    assert.equal(fulfilled.status, 200);
+    assert.equal(fulfilled.body.deliveryPhoto.sent, true);
+    assert.equal(sent.length, 1, 'the customer gets one picture');
+    assert.equal(sent[0].type, 'image');
+    assert.match(sent[0].image.link, /\/api\/shop\?delivery=[0-9a-f]{32}$/);
+    assert.match(sent[0].image.caption, /pahunch gaye/);
+
+    // The same picture must not go out again on a second fulfilment click.
+    const again = await api(`/api/dashboard?order_id=${orderId}`, {
+      method: 'POST', cookie: login.cookie, body: { status: 'fulfilled' },
+    });
+    assert.equal(again.status, 200);
+    assert.equal(again.body.deliveryPhoto.sent, false);
+    assert.equal(sent.length, 1, 'still just the one picture');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('an order with no delivered photo fulfils cleanly and sends nothing', async () => {
+  const login = await api('/api/auth?action=login', {
+    method: 'POST',
+    body: { email: 'owner@test.cafe', password: 'supersecret123' },
+  });
+  await query(
+    "UPDATE tenants SET wa_phone_number_id = 'PHONE1', wa_access_token = 'token-abc', status = 'active' WHERE slug = 'test-cafe'",
+  );
+  const tenantId = (await query("SELECT id FROM tenants WHERE slug = 'test-cafe'")).rows[0].id;
+  const { rows: cust } = await query(
+    `INSERT INTO customers (tenant_id, wa_id, display_name)
+     VALUES ($1, '15550006666', 'No Photo Buyer') RETURNING id`,
+    [tenantId],
+  );
+  const { rows: ord } = await query(
+    `INSERT INTO orders (tenant_id, customer_id, total_cents, status, payment_status, fulfilment)
+     VALUES ($1, $2, 10000, 'pending', 'paid', 'pickup') RETURNING id`,
+    [tenantId, cust[0].id],
+  );
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('graph.facebook.com')) {
+      sent.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.NP' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+  try {
+    const res = await api(`/api/dashboard?order_id=${ord[0].id}`, {
+      method: 'POST', cookie: login.cookie, body: { status: 'fulfilled' },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.deliveryPhoto.sent, false);
+    assert.equal(res.body.deliveryPhoto.reason, 'no_photo');
+    assert.equal(sent.length, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

@@ -2,8 +2,9 @@
 
 Multi-tenant WhatsApp ordering SaaS. Each shop connects its own WhatsApp number and
 gets an AI assistant that turns customer messages into structured orders in a
-dashboard. Shops start on a 14-day free trial; when it ends the platform
-automatically disconnects the number until the shop upgrades.
+dashboard. Shops start on a 14-day free trial; when it ends the AI stops replying
+until the shop upgrades, and the number stays connected so a payment resumes it
+without a new Meta signup.
 
 **Live:** https://budsbox.vercel.app — landing page, shop app at `/app`,
 operator panel at `/admin`. Postgres runs on Neon, provisioned through the
@@ -12,12 +13,34 @@ Vercel marketplace.
 ## What works today
 
 - Shop self-onboarding + secure login (scrypt password hashing, signed session cookies)
-- WhatsApp Cloud API webhook: signature verification, message receipt, AI reply
-- AI order parsing (OpenAI when configured, deterministic catalog parser otherwise)
-- Per-shop dashboard: orders, revenue, customer counts, status updates
-- Hourly-style cron that expires overdue trials and auto-disconnects those shops
+- WhatsApp Cloud API webhook: signature verification, idempotent message receipt
+- One-click WhatsApp connect via Meta Embedded Signup (or hand-pasted ids)
+- AI replies in the customer's own language (English / Hinglish / Hindi), with a
+  per-plan fair-use allowance and a zero-cost keyword fallback past it, so a
+  shop never goes silent
+- Orders carry the delivery details the AI lifts from the thread — delivery or
+  pickup, address, date-time, recipient name and phone
+- A new order reaches the owner with no signup at all: a "naya order" badge
+  plus a bell on the dashboard that clear once seen (the bell is a local
+  sound file, so it costs no AI credit and no message). An optional owner
+  email can be switched on later with a mail-provider key
+- A new shop starts with a starter flower catalog, so the first customer message
+  can become an order instead of "which flower?"
+- A delivery due tomorrow gets one reminder to the customer (WhatsApp, while the
+  24-hour window is open) and is always shown as a banner on the dashboard, so
+  the owner sees it with no email key and no signup
+- Money before flowers: the shop's own UPI QR is sent on "payment kaise karu?"
+  without spending an AI call, and an order is not fulfilled until it is marked
+  paid
+- Per-shop dashboard: orders, revenue, customer counts, chat inbox, catalog
+- WhatsApp connection health: warns the owner before the 60-day token expires
+  and flags a send that fails, instead of going quiet silently
+- Cron that expires overdue trials and auto-suspends those shops (AI stops, the
+  number stays connected so a payment revives it), logs tokens that are about to
+  lapse, and sends delivery-day reminders
 - Operator panel: all shops, live status, order counts, trial countdown
-- Plan upgrade via Razorpay checkout that reactivates a suspended shop
+- Plan upgrade via Razorpay — a monthly auto-renew mandate or a one-time yearly
+  payment — that reactivates a suspended shop
 
 ## Logging in
 
@@ -43,14 +66,19 @@ api/                    serverless functions (one file per route)
   admin.js              operator view (cross-tenant), bearer-secret gated
   payments.js           plan list + Razorpay checkout / verify
   health.js             liveness + database reachability
-  cron/trial.js         trial expiry -> suspend + disconnect
+  cron/trial.js         trial expiry -> suspend + disconnect, token watch, delivery reminders
 lib/                    shared code
   db.js                 Postgres pool
   auth.js               password hashing + sessions
-  whatsapp.js           Cloud API send + signature verification
-  ai.js                 order parsing
+  whatsapp.js           Cloud API send + signature verification + Embedded Signup
+  wahealth.js           token-expiry / send-failure watch
+  notify.js             owner alert + delivery-reminder email (Resend)
+  samples.js            starter catalog for a new shop
+  ai.js                 reply drafting + order parsing (provider chain)
   trial.js              trial window + expiry
   orders.js             order persistence
+  plans.js              plan catalogue (prices + AI allowance)
+  razorpay.js           checkout, subscriptions, webhook verification
   http.js               request helpers, error handling
 db/schema.sql           Postgres schema (run once)
 public/                 static frontend
@@ -88,6 +116,8 @@ tests/e2e.test.js       end-to-end tests against a real Postgres
 | `WHATSAPP_APP_ID` | Embedded Signup app id (public) |
 | `WHATSAPP_ES_CONFIG_ID` | Embedded Signup configuration id (public) |
 | `OPENAI_API_KEY` | AI order parsing (falls back to the catalog parser) |
+| `RESEND_API_KEY` | owner alert + delivery-reminder email (off = dashboard only) |
+| `EMAIL_FROM` | sender for those emails (defaults to Resend's onboarding address) |
 | `TRIAL_DAYS` | trial length, default `14` |
 | `CRON_SECRET` | protects the trial cron |
 
@@ -101,5 +131,7 @@ tests/e2e.test.js       end-to-end tests against a real Postgres
   asset ids Meta returns. The exchange, the WABA subscription and the phone
   number lookup all run server-side, so the shop's access token never reaches
   the page.
-- Payment upgrade is stubbed and captures nothing — wire a real PSP before
-  taking money.
+- Razorpay is the source of truth for money: a checkout is only marked paid
+  when the signed webhook says so, never when the browser says so. The monthly
+  mandate is charged by Razorpay itself; a halted mandate suspends the shop
+  rather than serving it free.

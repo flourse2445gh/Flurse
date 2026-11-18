@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy Policy — BudsBox</title>
+<meta name="description" content="BudsBox privacy policy: what data we store, why, who can see it, and how a shop can get it removed.">
+<meta name="robots" content="index, follow">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: {
+    colors: { brand:'#FF6B9D', brandDark:'#e8558a', wa:'#25D366', waDark:'#128C7E', cream:'#FEF7F0', ink:'#2B2118' },
+    fontFamily: { sans: ['Inter','system-ui','sans-serif'] }
+  } } }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style> body { font-family:'Inter',system-ui,sans-serif; } </style>
+</head>
+<body class="bg-cream text-ink antialiased">
+
+<header class="border-b border-ink/5 bg-white/60">
+  <div class="max-w-3xl mx-auto px-5 py-5 flex items-center justify-between">
+    <a href="/" class="flex items-center gap-2 no-underline text-ink">
+      <span class="w-8 h-8 rounded-xl bg-brand grid place-items-center text-white">🌸</span>
+      <span class="font-extrabold">BudsBox</span>
+    </a>
+    <a href="/app" class="text-[12px] font-bold text-brandDark no-underline">Shop login →</a>
+  </div>
+</header>
+
+<main class="max-w-3xl mx-auto px-5 py-12">
+  <h1 class="text-3xl sm:text-4xl font-extrabold">Privacy Policy</h1>
+  <p class="mt-2 text-[13px] text-ink/50">Last updated: 14 November 2026</p>
+
+  <div class="mt-8 space-y-7 text-[14.5px] leading-relaxed text-ink/75">
+
+    <p>
+      BudsBox ek software service hai jo flower shops ko unke apne WhatsApp number par
+      customer ke message ka jawab dene aur order banane me madad karti hai. Ye policy
+      batati hai ki hum kaun sa data rakhte hain, kis liye, aur aap use kaise hataa sakte hain.
+    </p>
+
+    <section>
+      <h2 class="text-xl font-extrabold text-ink">1. Kaun data ka owner hai</h2>
+      <p class="mt-2">
+        Har shop apne customers ka data apne account me rakhti hai. Aapki shop ke customer,
+        order aur chat messages <b>aapki</b> hain — BudsBox unhe sirf aapke liye process karta hai.
+        Ek shop doosri shop ka data kabhi nahi dekh sakti: har record par uski shop ka id lagi
+        hoti hai aur har query usi par filter hoti hai.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-xl font-extrabold text-ink">2. Hum kaun sa data rakhte hain</h2>
+      <ul class="mt-2 list-disc pl-5 space-y-1.5">
+        <li><b>Aapka account:</b> business ka naam, owner ka email, phone (optional), aur ek password hash. Password kabhi plain text me save nahi hota.</li>
+        <li><b>Shop profile:</b> address, khule hone ka time, delivery detail, tone, aur aapka UPI id / payment QR (jo aap khud upload karte hain).</li>
+        <li><b>Catalog:</b> aapke items aur unke price.</li>
+        <li><b>Customer aur order:</b> WhatsApp number, naam, message, aur order ki delivery detail (address, date, recipient).</li>
+        <li><b>Connection:</b> aapke WhatsApp number ki id aur uska access token, taaki reply bhej sakein.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 class="text-xl font-extrabold text-ink">3. Data kis liye use hota hai</h2>
+      <ul class="mt-2 list-disc pl-5 space-y-1.5">
+        <li>Customer ke message ka jawab dena aur order banana.</li>
+        <li>Aapko naye order ki jaankari dena (dashboard par badge aur bell).</li>
+        <li>Delivery se ek din pehle reminder bhejna.</li>
+        <li>Subscription aur payment sambhalna.</li>
+        <li>Service ko surakshit rakhna (fraud, misuse rokna).</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 class="text-xl font-extrabold text-ink">4. Kiske saath data jaata hai</h2>
+      <p class="mt-2">
+        Hum aapka data bechte nahi hain. Kuch service partners kaam karne ke liye zaroori hain:
+      </p>
+      <ul class="mt-2 list-disc pl-5 space-y-1.5">
+        <li><b>Meta (WhatsApp Cloud API):</b> message bhejne aur lene ke liye — yahi aapka official WhatsApp channel hai.</li>
+        <li><b>AI providers</b> (jaise Google Gemini, Groq, OpenRouter, OpenAI): customer ka message reply aur order samajhne ke liye process hota hai.</li>
+        <li><b>Razorpay:</b> subscription ka paisa lene ke liye. Card/UPI ki detail Razorpay ke paas rehti hai — BudsBox ke server par kabhi nahi aati.</li>
+        <li><b>Hosting aur database</b> (Vercel, Neon Postgres) aur, agar aap on karein, <b>email provider</b> (Resend).</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 class="text-xl font-extrabold text-ink">5. Password aur session</h2>
+      <p class="mt-2">
+        Password scrypt se hash hota hai. Login ke baad ek HttpOnly cookie milti hai; us cookie
+        ka sirf hash database me rehta hai. Password reset link ek hi baar chalta hai aur
+        1 ghante me expire ho jata hai. Reset karne par purane saare session turant band ho jate hain.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-xl font-extrabold text-ink">6. Data kitne din rehta hai</h2>
+      <p class="mt-2">
+        Data tab tak rehta hai jab tak aapka account chalta hai. Aap account hataane ke liye
+        likh sakte hain; uske baad hum aapki shop ka data delete kar dete hain. Kuch record
+        (jaise payment ki entry) kanoon ya hisaab ke liye thoda lamba rakhna pad sakta hai.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-xl font-extrabold text-ink">7. Aapke haq</h2>
+      <p class="mt-2">
+        Aap apna data dekh sakte hain, theek kar sakte hain, export kar sakte hain
+        (operator panel me CSV export hai) aur delete karwa sakte hain. Iske liye
+        neeche diye email par likhein.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-xl font-extrabold text-ink">8. Contact</h2>
+      <p class="mt-2">
+        Koi bhi sawaal ya data request ke liye:
+        <a class="font-bold text-brandDark" href="mailto:support@budsbox.app">support@budsbox.app</a>
+      </p>
+    </section>
+
+    <p class="text-[12.5px] text-ink/45 border-t border-ink/5 pt-6">
+      Note: ye policy product ke asli behaviour ke hisaab se likhi gayi hai. Launch se pehle
+      apne business ki legal detail (firm ka naam, address, GST agar ho) jod kar ek baar
+      legal review zaroor karwa lein.
+    </p>
+  </div>
+
+  <nav class="mt-10 flex flex-wrap gap-4 text-[12.5px] font-bold">
+    <a href="/terms" class="text-brandDark">Terms of Service →</a>
+    <a href="/refund" class="text-brandDark">Refund Policy →</a>
+    <a href="/" class="text-ink/50">← Home</a>
+  </nav>
+</main>
+
+<footer class="border-t border-ink/5 bg-white/50">
+  <p class="py-8 text-center text-[11px] text-ink/30">© 2026 BudsBox · Made with 🌸 in India</p>
+</footer>
+</body>
+</html>

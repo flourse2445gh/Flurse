@@ -234,6 +234,22 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_phone TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_waba_id        TEXT;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_display_number TEXT;
 
+-- Meta's `is_on_biz_app`: true when the number is shared with the WhatsApp
+-- Business app (coexistence), so the owner can keep using their own app and can
+-- leave from it in one tap. It decides which leaving instructions to show, so it
+-- is stored at connect time rather than guessed later.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_on_biz_app BOOLEAN;
+
+-- The Cloud API token expires (60 days from Embedded Signup). Nothing used to
+-- watch that clock, so a shop went silent the day it lapsed: messages kept
+-- arriving and the AI kept drafting, but every send failed and only the server
+-- log knew. Storing the expiry lets the dashboard warn the owner before it
+-- happens, and the last send error catches a dead token that lapses early.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_token_expires_at TIMESTAMPTZ;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_last_error       TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_last_error_kind  TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_last_error_at    TIMESTAMPTZ;
+
 -- Payment. A florist takes the money before the flowers leave, so an order is
 -- not done until it is paid. `unpaid` is the only non-terminal state; the shop
 -- owner marks `paid` or `refunded` by hand after seeing the transfer land.
@@ -288,3 +304,187 @@ CREATE TABLE IF NOT EXISTS payments (
 
 CREATE INDEX IF NOT EXISTS payments_tenant_idx ON payments (tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS payments_order_idx ON payments (razorpay_order_id);
+
+-- ---------------------------------------------------------------------------
+-- Auto-renewal (Razorpay Subscriptions)
+-- ---------------------------------------------------------------------------
+-- A mandate the owner approves once. Razorpay then charges it every month on
+-- its own, so nobody has to remember to pay and the operator never chases
+-- anyone. The subscription id is kept on the tenant so a renewal webhook can
+-- find the shop without trusting anything in the body.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS razorpay_subscription_id TEXT;
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id                 UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  plan                      TEXT NOT NULL,
+  amount_cents              INTEGER NOT NULL,
+  currency                  TEXT NOT NULL DEFAULT 'INR',
+  razorpay_subscription_id  TEXT UNIQUE,
+  -- created -> active -> (halted | cancelled). `halted` means a charge failed
+  -- and Razorpay has stopped trying; the shop falls back to manual payment.
+  status                    TEXT NOT NULL DEFAULT 'created'
+                            CHECK (status IN ('created', 'active', 'halted', 'cancelled')),
+  current_end               TIMESTAMPTZ,
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS subscriptions_tenant_idx ON subscriptions (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS subscriptions_rzp_idx ON subscriptions (razorpay_subscription_id);
+
+-- ---------------------------------------------------------------------------
+-- Fair use
+-- ---------------------------------------------------------------------------
+-- Each plan includes a number of AI replies per month. A reply costs real
+-- money, so the count is what the plan is really selling. The flag is set only
+-- on a turn that actually reached a model, so a greeting or a payment-QR answer
+-- (both answered without a model) never counts against the allowance. Once the
+-- allowance is spent the shop keeps replying, but from the keyword matcher,
+-- which costs nothing.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS ai_reply BOOLEAN NOT NULL DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS messages_ai_usage_idx
+  ON messages (tenant_id, created_at) WHERE ai_reply AND direction = 'inbound';
+
+-- ---------------------------------------------------------------------------
+-- Owner alerts
+-- ---------------------------------------------------------------------------
+-- A new order used to land in the dashboard with nothing to tell the owner it
+-- arrived, so a trial shop saw no value. `orders_seen_at` is the watermark the
+-- dashboard compares against to count orders the owner has not looked at yet.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS orders_seen_at TIMESTAMPTZ;
+
+-- Seeded starter items so a brand-new shop can take an order on day one,
+-- instead of facing an empty catalog and a deaf AI. The flag lets the
+-- dashboard nudge the owner to set their own prices, and clears the moment the
+-- owner edits the item.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_sample BOOLEAN NOT NULL DEFAULT false;
+
+-- Delivery-day reminder, sent once by the daily cron so the customer is not
+-- surprised on the day. The timestamp keeps a later run from sending it twice.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ;
+
+-- ---------------------------------------------------------------------------
+-- Password resets
+-- ---------------------------------------------------------------------------
+-- A shop owner who forgets their password otherwise has no way back in: the
+-- login is the only door, and a lost password meant creating a second shop and
+-- abandoning the number and orders on the first. The raw token is emailed and
+-- never stored; only its SHA-256 hash is kept, so a database read cannot be
+-- replayed into a takeover. `used_at` makes a link single-use, and `expires_at`
+-- keeps a stale mail from working a day later.
+CREATE TABLE IF NOT EXISTS password_resets (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  tenant_id   UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  token_hash  TEXT NOT NULL UNIQUE,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used_at     TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS password_resets_token_idx ON password_resets (token_hash);
+CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets (user_id);
+
+-- ---------------------------------------------------------------------------
+-- Rate limits
+-- ---------------------------------------------------------------------------
+-- Fixed-window counters for the unauthenticated endpoints that take a guessable
+-- secret (login, reset request). Kept in the database because serverless
+-- functions are frozen between requests and run as several copies, so an
+-- in-memory counter would reset on every cold start and never be shared.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key          TEXT PRIMARY KEY,
+  count        INTEGER NOT NULL DEFAULT 0,
+  window_start TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Bouquet photos
+-- ---------------------------------------------------------------------------
+-- A florist's catalogue is a picture, not a line of text: a customer who cannot
+-- see the bouquet does not buy it. Each product can carry one photo, stored as
+-- a data URL so no file host is needed, and served under an unguessable token
+-- so WhatsApp can fetch it when the AI sends it to a customer.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS image_token TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS image_data  TEXT;
+CREATE INDEX IF NOT EXISTS products_image_token_idx ON products (image_token)
+  WHERE image_token IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Post-delivery photo
+-- ---------------------------------------------------------------------------
+-- The photo of the flowers that actually went out, sent to the customer with a
+-- thank-you. It is the one proof that the shop did the work, and it is what
+-- turns a first order into a repeat one. Stored and served the same way as a
+-- catalogue photo.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_photo_token   TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_photo_data    TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_photo_sent_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS orders_delivery_photo_token_idx ON orders (delivery_photo_token)
+  WHERE delivery_photo_token IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Occasions (birthday / anniversary memory)
+-- ---------------------------------------------------------------------------
+-- A flower shop runs on repeat orders, and the repeat is an occasion: the same
+-- customer's birthday, their anniversary, a yearly remembrance. Remembering the
+-- date for the owner is the single most valuable thing the app can do, because
+-- it turns a one-time buyer into a customer who comes back every year. The date
+-- is stored on its own so a reminder can compare month and day, and
+-- `reminded_on` keeps the same occasion from being nudged twice.
+CREATE TABLE IF NOT EXISTS customer_occasions (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  customer_id  UUID NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL CHECK (kind IN ('birthday', 'anniversary', 'other')),
+  label        TEXT,
+  on_date      DATE NOT NULL,
+  note         TEXT,
+  reminded_on  DATE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, customer_id, kind, on_date)
+);
+
+CREATE INDEX IF NOT EXISTS customer_occasions_tenant_idx ON customer_occasions (tenant_id, on_date);
+CREATE INDEX IF NOT EXISTS customer_occasions_customer_idx ON customer_occasions (customer_id);
+
+-- ---------------------------------------------------------------------------
+-- Broadcasts (festival offers)
+-- ---------------------------------------------------------------------------
+-- Diwali and Valentine's are where a flower shop makes its year, and the offer
+-- has to reach every past customer at once. The owner writes the message, so
+-- nothing here costs a model call. A broadcast is a job with a per-recipient
+-- outcome, so the owner is told exactly how many customers actually got it
+-- rather than a single "sent" that hides the truth.
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id      UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  body           TEXT NOT NULL,
+  audience       TEXT NOT NULL DEFAULT 'all'
+                 CHECK (audience IN ('all', 'open_window', 'repeat')),
+  status         TEXT NOT NULL DEFAULT 'sending'
+                 CHECK (status IN ('sending', 'done', 'failed')),
+  sent_count     INTEGER NOT NULL DEFAULT 0,
+  failed_count   INTEGER NOT NULL DEFAULT 0,
+  skipped_count  INTEGER NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS broadcasts_tenant_idx ON broadcasts (tenant_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS broadcast_recipients (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id     UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
+  broadcast_id  UUID NOT NULL REFERENCES broadcasts (id) ON DELETE CASCADE,
+  customer_id   UUID REFERENCES customers (id) ON DELETE SET NULL,
+  status        TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),
+  error         TEXT,
+  sent_at       TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS broadcast_recipients_broadcast_idx
+  ON broadcast_recipients (broadcast_id, status);

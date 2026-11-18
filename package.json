@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "BudsBox - multi-tenant WhatsApp ordering SaaS with a 3-day trial",
+  "description": "BudsBox - multi-tenant WhatsApp ordering SaaS with a 14-day trial",
   "engines": {
     "node": ">=20"
   },
@@ -13,6 +13,7 @@
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
+    "nodemailer": "^10.6.0",
     "pg": "^8.13.1"
   }
 }

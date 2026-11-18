@@ -17,6 +17,7 @@ const ROUTES = {
   '/api/dashboard': 'api/dashboard.js',
   '/api/conversations': 'api/conversations.js',
   '/api/products': 'api/products.js',
+  '/api/shop': 'api/shop.js',
   '/api/whatsapp': 'api/whatsapp.js',
   '/api/admin': 'api/admin.js',
   '/api/payments': 'api/payments.js',

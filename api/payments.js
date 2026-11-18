@@ -3,11 +3,9 @@ import { requireSession } from '../lib/auth.js';
 import { handler, readRaw, readJson, json, requireMethod, HttpError } from '../lib/http.js';
 import {
   razorpayConfigured, createRazorpayOrder, verifyCheckoutSignature, fetchPayment,
+  ensureMonthlyPlan, createSubscription, fetchSubscription,
 } from '../lib/razorpay.js';
-
-const PLANS = {
-  starter: { name: 'Pro Monthly', priceCents: 59900, currency: 'INR', days: 30 },
-};
+import { PLANS, planList, DEFAULT_PLAN } from '../lib/plans.js';
 
 // Lifts the suspension and extends the paid period by the plan's length,
 // counting from whichever is later: now, or the period already paid for. A
@@ -67,6 +65,90 @@ async function settleFromRazorpay({ paymentId, orderId }) {
   return settle({ razorpayOrderId: orderId, razorpayPaymentId: paymentId });
 }
 
+// --- Auto-renewal ---------------------------------------------------------
+// A subscription charge is settled by asking Razorpay, never by trusting the
+// webhook body. Razorpay reports `current_end`, which is when the paid period
+// now runs to; setting paid_until from it keeps the shop active without any
+// operator action, and stays correct if a webhook is retried.
+
+async function applySubscriptionState(subscriptionId) {
+  let sub;
+  try {
+    sub = await fetchSubscription(subscriptionId);
+  } catch {
+    return null;
+  }
+  if (!sub || !['halted', 'cancelled'].includes(sub.status)) return null;
+  const status = sub.status;
+
+  const { rows } = await query(
+    `UPDATE subscriptions
+        SET status = $2, updated_at = now()
+      WHERE razorpay_subscription_id = $1
+      RETURNING tenant_id`,
+    [subscriptionId, status],
+  );
+  if (!rows.length) return null;
+  const tenantId = rows[0].tenant_id;
+
+  // A failed mandate should not silently keep serving. Suspend now; the owner
+  // can pay by hand and keep their number, exactly like a trial expiry. The
+  // token is kept for the same reason: the status gate stops replies, and a
+  // later payment must be able to re-enable the number without a new signup.
+  await query(
+    `UPDATE tenants
+        SET status = 'suspended',
+            disconnected_at = now(),
+            disconnect_reason = 'subscription_halted',
+            updated_at = now()
+      WHERE id = $1 AND status <> 'cancelled'`,
+    [tenantId],
+  );
+  return tenantId;
+}
+
+// Extends paid_until to the end of the period Razorpay just charged for.
+async function settleSubscriptionCharge(subscriptionId) {
+  let sub;
+  try {
+    sub = await fetchSubscription(subscriptionId);
+  } catch {
+    return null;
+  }
+  if (!sub) return null;
+
+  const currentEnd = sub.current_end ? new Date(sub.current_end * 1000) : null;
+  const status = sub.status === 'active' ? 'active' : sub.status;
+
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `UPDATE subscriptions
+          SET status = $2,
+              current_end = COALESCE($3, current_end),
+              updated_at = now()
+        WHERE razorpay_subscription_id = $1
+        RETURNING tenant_id`,
+      [subscriptionId, status, currentEnd],
+    );
+    if (!rows.length) return null;
+    const tenantId = rows[0].tenant_id;
+
+    if (currentEnd) {
+      await client.query(
+        `UPDATE tenants
+            SET status = 'active',
+                paid_until = GREATEST(COALESCE(paid_until, now()), $2),
+                disconnected_at = NULL,
+                disconnect_reason = NULL,
+                updated_at = now()
+          WHERE id = $1 AND status <> 'cancelled'`,
+        [tenantId, currentEnd],
+      );
+    }
+    return { tenantId, currentEnd };
+  });
+}
+
 export default handler(async (req, res) => {
   const action = new URL(req.url, 'http://localhost').searchParams.get('action') ?? 'plans';
 
@@ -84,6 +166,22 @@ export default handler(async (req, res) => {
       const settled = await settleFromRazorpay({ paymentId: entity.id, orderId: entity.order_id });
       console.log(settled ? `Activated ${settled.tenant.slug}` : 'Webhook: nothing to settle');
     }
+
+    // Auto-renewal. Every event carries the subscription id, so the shop is
+    // found by that and the real state is read back from Razorpay. The event
+    // name only decides which lookup to do — it is never trusted on its own, so
+    // a forged body can neither suspend a shop nor extend it for free.
+    const subEntity = event?.payload?.subscription?.entity;
+    const subId = subEntity?.id;
+    if (subId) {
+      if (event.event === 'subscription.charged' || event.event === 'subscription.activated') {
+        const done = await settleSubscriptionCharge(subId);
+        console.log(done ? `Renewed subscription ${subId}` : `Webhook: nothing to renew for ${subId}`);
+      } else if (event.event === 'subscription.halted' || event.event === 'subscription.cancelled') {
+        const done = await applySubscriptionState(subId);
+        console.log(done ? `Suspended for subscription ${subId}` : `Webhook: nothing to suspend for ${subId}`);
+      }
+    }
     json(res, 200, { received: true });
     return;
   }
@@ -91,13 +189,36 @@ export default handler(async (req, res) => {
   const session = await requireSession(req);
 
   if (req.method === 'GET') {
+    const { rows: subRows } = await query(
+      `SELECT razorpay_subscription_id, status, current_end
+         FROM subscriptions WHERE tenant_id = $1
+        ORDER BY created_at DESC LIMIT 1`,
+      [session.tenant_id],
+    );
+    const sub = subRows[0] ?? null;
+
+    // Fair-use counter: how many AI replies this shop has used this month. The
+    // plan decides the allowance; a shop with no plan yet gets the starter one.
+    const planId = session.plan ?? DEFAULT_PLAN;
+    const { rows: usageRows } = await query(
+      `SELECT COUNT(*)::int AS n FROM messages
+        WHERE tenant_id = $1 AND direction = 'inbound' AND ai_reply
+          AND created_at >= date_trunc('month', now())`,
+      [session.tenant_id],
+    );
+    const allowance = PLANS[planId]?.aiReplies ?? PLANS[DEFAULT_PLAN].aiReplies;
+
     json(res, 200, {
-      plans: Object.entries(PLANS).map(([id, p]) => ({ id, ...p })),
+      plans: planList(),
       current: {
         status: session.status,
         trialEndsAt: session.trial_ends_at,
         plan: session.plan ?? null,
         paidUntil: session.paid_until ?? null,
+        usage: { aiReplies: usageRows[0]?.n ?? 0, allowance },
+        autoRenew: sub && sub.status === 'active'
+          ? { subscriptionId: sub.razorpay_subscription_id, currentEnd: sub.current_end }
+          : null,
       },
       configured: razorpayConfigured(),
     });
@@ -127,6 +248,47 @@ export default handler(async (req, res) => {
 
     json(res, 200, {
       orderId: order.id,
+      amount: plan.priceCents,
+      currency: plan.currency,
+      keyId: process.env.RAZORPAY_KEY_ID,
+      name: session.business_name,
+      plan: { id: planId, ...plan },
+    });
+    return;
+  }
+
+  // Auto-renewal. Creates (or reuses) a monthly Razorpay plan, opens a
+  // subscription for this shop, and returns the id the browser hands to
+  // Razorpay checkout. The owner approves the mandate once; Razorpay then
+  // charges every month and tells us by webhook.
+  if (action === 'subscribe') {
+    const { plan: planId } = await readJson(req);
+    const plan = PLANS[planId];
+    if (!plan) throw new HttpError(400, `plan must be one of: ${Object.keys(PLANS).join(', ')}`);
+    if (!plan.recurring) throw new HttpError(400, 'This plan is a one-time payment, not a subscription');
+    if (!razorpayConfigured()) throw new HttpError(503, 'Payments are not configured yet');
+
+    const rzpPlanId = await ensureMonthlyPlan({ amountCents: plan.priceCents, name: `BudsBox ${plan.tier}` });
+    const subscription = await createSubscription({
+      planId: rzpPlanId,
+      tenantId: session.tenant_id,
+      plan: planId,
+      notifyEmail: session.email,
+    });
+
+    await query(
+      `INSERT INTO subscriptions (tenant_id, plan, amount_cents, razorpay_subscription_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (razorpay_subscription_id) DO NOTHING`,
+      [session.tenant_id, planId, plan.priceCents, subscription.id],
+    );
+    await query(
+      'UPDATE tenants SET razorpay_subscription_id = $2, updated_at = now() WHERE id = $1',
+      [session.tenant_id, subscription.id],
+    );
+
+    json(res, 200, {
+      subscriptionId: subscription.id,
       amount: plan.priceCents,
       currency: plan.currency,
       keyId: process.env.RAZORPAY_KEY_ID,
